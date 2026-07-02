@@ -70,7 +70,7 @@ spel_hidden void spel_log_stderr(spel_log_event evt, void* user);
 
 const spel_api char* spel_log_sev_to_string(spel_severity severity);
 
-spel_api _Noreturn void spel_log_panic(spel_log_event evt);
+spel_api void spel_log_panic(spel_log_event evt);
 
 #define spel_panic(err, msg, ...)                                                        \
 	spel_log_panic(spel_log_fmt(&(spel_log_event_t){.severity = (SPEL_SEV_FATAL),        \

@@ -1,5 +1,6 @@
 #ifndef SPEL_TYPES
 #define SPEL_TYPES
+#include "audio/audio_types.h"
 #include "core/env_info.h"
 #include "core/event.h"
 #include "core/macros.h"
@@ -144,6 +145,7 @@ typedef struct spel_context
 	spel_events events;
 	spel_time time;
 	spel_gfx_context gfx;
+	spel_audio audio;
 	spel_memory memory;
 	spel_log log;
 

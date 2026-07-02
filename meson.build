@@ -31,6 +31,10 @@ sources = [
     'src/gfx/gfx_shader_reflect.c',
     'src/input/input.c',
 
+    'src/audio/audio_device.c',
+    'src/audio/audio_source.c',
+    'src/audio/audio_mixer.c',
+
     'src/gfx/gfx_canvas.c',
     'src/gfx/canvas/canvas_path.c',
     'src/gfx/canvas/canvas_internal_fonts.c',

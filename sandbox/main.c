@@ -1,4 +1,5 @@
 // lets make pong
+#include "audio/audio.h"
 #include "core/log.h"
 #include "core/types.h"
 #include "gfx/gfx.h"
@@ -17,6 +18,18 @@ static spel_vec2 ball_vel = {250, 150};
 
 static spel_action axis_vertical;
 
+// audio
+static spel_audio_source sfx_wall;
+static spel_audio_source sfx_paddle;
+static spel_audio_source sfx_score;
+static spel_audio_source sfx_reset;
+
+// rising-edge guards to avoid replaying sounds each frame
+static bool wall_was_at_top;
+static bool wall_was_at_bottom;
+static bool hit_player_paddle;
+static bool hit_enemy_paddle;
+
 void spel_load()
 {
 	// why an axis instead of spel_input_key?
@@ -34,6 +47,12 @@ void spel_load()
 	paddle_enemy = spel_rect(50, (spel.window.height / 2) - 50, 25, 100);
 	paddle_player =
 		spel_rect(spel.window.width - 75, (spel.window.height / 2) - 50, 25, 100);
+
+	// load sound effects
+	sfx_wall   = spel_audio_source_load("sfx_wall.wav");
+	sfx_paddle = spel_audio_source_load("sfx_paddle.wav");
+	sfx_score  = spel_audio_source_load("sfx_score.wav");
+	sfx_reset  = spel_audio_source_load("sfx_reset.wav");
 }
 
 void spel_update(double dt)
@@ -46,6 +65,10 @@ void spel_update(double dt)
 			ball.center =
 				spel_vec2((float)spel.window.width / 2, (float)spel.window.height / 2);
 			ball_reset_delay = -1.0F;
+
+			// ball respawned — play reset chirp
+			if (sfx_reset)
+				spel_audio_play(sfx_reset, false);
 		}
 	}
 
@@ -59,29 +82,65 @@ void spel_update(double dt)
 	ball.center.x += ball_vel.x * dt;
 	ball.center.y += ball_vel.y * dt;
 
+	// wall bounce top
 	if (ball.center.y <= ball.radius)
 	{
 		ball_vel.y = fabsf(ball_vel.y);
+		if (!wall_was_at_top && sfx_wall)
+			spel_audio_play(sfx_wall, false);
+		wall_was_at_top = true;
 	}
+	else
+	{
+		wall_was_at_top = false;
+	}
+
+	// wall bounce bottom
 	if (ball.center.y >= spel.window.height - ball.radius)
 	{
 		ball_vel.y = -fabsf(ball_vel.y);
+		if (!wall_was_at_bottom && sfx_wall)
+			spel_audio_play(sfx_wall, false);
+		wall_was_at_bottom = true;
+	}
+	else
+	{
+		wall_was_at_bottom = false;
 	}
 
+	// paddle hit (player)
 	if (spel_circle_intersects_rect(ball, paddle_player))
 	{
 		ball_vel.x = -fabsf(ball_vel.x);
 		float hit = (ball.center.y - paddle_player.y) / paddle_player.height;
 		ball_vel.y = (hit - 0.5F) * 2.F * 400.F;
+
+		if (!hit_player_paddle && sfx_paddle)
+			spel_audio_play(sfx_paddle, false);
+		hit_player_paddle = true;
+	}
+	else
+	{
+		hit_player_paddle = false;
 	}
 
+	// paddle hit (enemy)
 	if (spel_circle_intersects_rect(ball, paddle_enemy))
 	{
 		ball_vel.x = fabsf(ball_vel.x);
 		float hit = (ball.center.y - paddle_enemy.y) / paddle_enemy.height;
 		ball_vel.y = (hit - 0.5F) * 2.F * 400.F;
+
+		if (!hit_enemy_paddle && sfx_paddle)
+			spel_audio_play(sfx_paddle, false);
+		hit_enemy_paddle = true;
+	}
+	else
+	{
+		hit_enemy_paddle = false;
 	}
 
+	// enemy AI
 	float enemy_center = paddle_enemy.y + 50.f; // paddle center
 	float diff = ball.center.y - enemy_center;
 	float move = spel_math_clamp(diff, -200.f * dt, 200.f * dt);
@@ -89,15 +148,22 @@ void spel_update(double dt)
 	paddle_enemy.y =
 		spel_math_clamp(paddle_enemy.y, 0, spel.window.height - paddle_enemy.height);
 
+	// scoring
 	if (ball.center.x < 0 && ball_reset_delay == -1.0F)
 	{
 		score_player++;
 		ball_reset_delay = 0.75F;
+
+		if (sfx_score)
+			spel_audio_play(sfx_score, false);
 	}
 	if (ball.center.x > spel.window.width && ball_reset_delay == -1.0F)
 	{
 		score_enemy++;
 		ball_reset_delay = 0.75F;
+
+		if (sfx_score)
+			spel_audio_play(sfx_score, false);
 	}
 }
 

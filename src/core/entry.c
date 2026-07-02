@@ -1,6 +1,7 @@
 #include "core/entry.h"
 #include "SDL3/SDL_hints.h"
 #include "SDL3/SDL_init.h"
+#include "audio/audio.h"
 #include "core/event.h"
 #include "core/log.h"
 #include "core/types.h"
@@ -25,17 +26,19 @@ spel_api spel_context spel = {
 #ifdef SP_WEAK_LINK
 int main(int argc, const char** argv)
 {
-	spel_app_desc app = (spel_app_desc){.argc = argc,
-										.argv = argv,
-										.gfx_backend = SPEL_GFX_BACKEND_OPENGL,
-										.debug = spel_debug_build,
-										.conf = spel_conf,
-										.load = spel_load,
-										.update = spel_update,
-										.draw = spel_draw,
-										.quit = spel_quit,
-										.run = spel_run,
-										.low_memory = spel_low_memory};
+	spel_app_desc app = (spel_app_desc){
+		.argc = argc,
+		.argv = argv,
+		.gfx_backend = SPEL_GFX_BACKEND_OPENGL,
+		.debug = spel_debug_build,
+		.conf = spel_conf,
+		.load = spel_load,
+		.update = spel_update,
+		.draw = spel_draw,
+		.quit = spel_quit,
+		.run = spel_run,
+		.low_memory = spel_low_memory,
+	};
 	return spel_app_run(&app);
 }
 #endif
@@ -61,6 +64,7 @@ spel_hidden void spel_run_frame()
 	spel_time_frame_begin(&spel.time);
 	spel_input_update();
 	spel_event_poll();
+	spel_audio_cleanup();
 
 	if (spel.app.update)
 	{
@@ -142,6 +146,10 @@ spel_api int spel_app_run(spel_app_desc* app)
 	gfx_desc.debug = spel.env.debug;
 
 	spel.gfx = spel_gfx_context_create(&gfx_desc);
+	if (!spel_audio_init(NULL))
+	{
+		spel_error(SPEL_ERR_INTERNAL, "failed to initialize audio engine");
+	}
 
 	spel_callback(spel.app.load);
 
@@ -149,6 +157,7 @@ spel_api int spel_app_run(spel_app_desc* app)
 	spel_callback(spel.app.run);
 	spel_callback(spel.app.quit);
 
+	spel_audio_shutdown();
 	spel_input_shutdown();
 	spel_gfx_context_destroy(spel.gfx);
 	spel_window_cleanup();
@@ -182,15 +191,17 @@ spel_hidden void spel_app_transform(spel_app_desc* app)
 
 spel_api spel_app_desc spel_app_desc_default()
 {
-	return (spel_app_desc){.argc = 0,
-						   .argv = NULL,
-						   .gfx_backend = SPEL_GFX_BACKEND_OPENGL,
-						   .debug = spel_debug_build,
-						   .conf = NULL,
-						   .load = NULL,
-						   .update = NULL,
-						   .draw = NULL,
-						   .quit = NULL,
-						   .run = NULL,
-						   .low_memory = NULL};
+	return (spel_app_desc){
+		.argc = 0,
+		.argv = NULL,
+		.gfx_backend = SPEL_GFX_BACKEND_OPENGL,
+		.debug = spel_debug_build,
+		.conf = NULL,
+		.load = NULL,
+		.update = NULL,
+		.draw = NULL,
+		.quit = NULL,
+		.run = NULL,
+		.low_memory = NULL,
+	};
 }
