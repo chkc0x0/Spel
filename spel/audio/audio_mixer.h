@@ -8,6 +8,7 @@ spel_api void spel_audio_voice_destroy(spel_audio_voice voice);
 
 spel_api void spel_audio_voice_play(spel_audio_voice voice);
 spel_api void spel_audio_voice_stop(spel_audio_voice voice);
+spel_api void spel_audio_voice_pause(spel_audio_voice voice);
 spel_api bool spel_audio_voice_playing(spel_audio_voice voice);
 spel_api bool spel_audio_voice_done(spel_audio_voice voice);
 

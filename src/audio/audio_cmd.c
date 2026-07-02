@@ -111,6 +111,10 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer, spel_audio_cm
 				atomic_store_explicit(&v->looping, cmd.bool_value, memory_order_release);
 				break;
 
+			case SPEL_AUDIO_CMD_PAUSE:
+				atomic_store_explicit(&v->playing, false, memory_order_release);
+				break;
+
 			default:
 				break;
 		}

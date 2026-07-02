@@ -6,10 +6,8 @@
 #include <stdint.h>
 
 #define SPEL_AUDIO_MAX_VOICES     48
-#define SPEL_AUDIO_CMD_RING_SIZE  64  /* power of 2 */
+#define SPEL_AUDIO_CMD_RING_SIZE  64  /* pot */
 #define SPEL_AUDIO_CMD_RING_MASK  (SPEL_AUDIO_CMD_RING_SIZE - 1)
-
-/* ── Command types for main-thread → audio-thread dispatch ── */
 
 typedef enum
 {
@@ -20,6 +18,7 @@ typedef enum
 	SPEL_AUDIO_CMD_PAN,
 	SPEL_AUDIO_CMD_DESTROY,
 	SPEL_AUDIO_CMD_LOOP,
+	SPEL_AUDIO_CMD_PAUSE,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -33,31 +32,12 @@ typedef struct
 	};
 } spel_audio_cmd;
 
-/* ── Lock-free SPSC ring buffer ──
- *
- * Single-producer (main thread), single-consumer (audio callback).
- * Head is written by producer, read by consumer.
- * Tail is written by consumer, read by producer.
- * All ordering via C11 atomics — no CAS, no mutexes.
- */
-
 typedef struct
 {
 	spel_audio_cmd buffer[SPEL_AUDIO_CMD_RING_SIZE];
-	atomic_uint    head;  /* producer: next slot to write   */
-	atomic_uint    tail;  /* consumer: next slot to read    */
+	atomic_uint    head;
+	atomic_uint    tail; 
 } spel_audio_cmd_ring;
-
-/* ── Voice struct ────────────────────────────────────────
- *
- * Fields accessed by both threads are _Atomic.
- * Fields only written by the audio callback (via command
- * processing) and only read by the callback during mixing
- * are plain types.
- * fire_forget is set once on the main thread during create()
- * and only read on the main thread during cleanup() — never
- * touched by the callback.
- */
 
 struct spel_audio_voice_t
 {
@@ -102,13 +82,9 @@ struct spel_audio_source_t
 
 typedef struct spel_audio_source_t spel_audio_source_t;
 
-/* ── Ring buffer API ── */
-
 spel_hidden bool spel_audio_cmd_push(spel_audio_cmd_ring* ring, const spel_audio_cmd* cmd);
 spel_hidden bool spel_audio_cmd_pop(spel_audio_cmd_ring* ring, spel_audio_cmd* out);
 spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer, spel_audio_cmd_ring* ring);
-
-/* ── Mixer ── */
 
 void spel_audio_mixer_process(
 	spel_audio_mixer_t* mixer,

@@ -211,6 +211,25 @@ spel_api void spel_audio_voice_stop(spel_audio_voice voice)
 	}
 }
 
+spel_api void spel_audio_voice_pause(spel_audio_voice voice)
+{
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_PAUSE;
+	cmd.voice_index = idx;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping PAUSE for voice %d", idx);
+	}
+}
+
 spel_api bool spel_audio_voice_playing(spel_audio_voice voice)
 {
 	if (!voice)
