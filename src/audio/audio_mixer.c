@@ -11,7 +11,8 @@ static int find_free_slot(spel_audio_mixer_t* mixer)
 {
 	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
 	{
-		if (!mixer->voices[i].active)
+		if (!atomic_load_explicit(&mixer->voices[i].active, memory_order_relaxed)
+			&& mixer->voices[i].decoder == NULL)
 		{
 			return i;
 		}
@@ -19,25 +20,18 @@ static int find_free_slot(spel_audio_mixer_t* mixer)
 	return -1;
 }
 
-static void compute_pan_factors(float pan, float* l, float* r)
+static int voice_index(spel_audio_state_t* state, spel_audio_voice voice)
 {
-	if (pan <= 0.0F)
+	if (!state || !voice)
 	{
-		*l = 1.0F;
+		return -1;
 	}
-	else
+	int idx = (int)((spel_audio_voice_t*)voice - state->mixer.voices);
+	if (idx < 0 || idx >= SPEL_AUDIO_MAX_VOICES)
 	{
-		*l = 1.0F - pan;
+		return -1;
 	}
-
-	if (pan >= 0.0F)
-	{
-		*r = 1.0F;
-	}
-	else
-	{
-		*r = 1.0F + pan;
-	}
+	return idx;
 }
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
@@ -84,14 +78,17 @@ spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
 		return NULL;
 	}
 
-	v->volume = 1.0F;
-	v->pan_l = 1.0F;
-	v->pan_r = 1.0F;
-	v->active = true;
-	v->playing = false;
-	v->looping = false;
+	v->volume   = 1.0F;
+	v->pan_l    = 1.0F;
+	v->pan_r    = 1.0F;
+
+	atomic_store_explicit(&v->active,  false, memory_order_release);
+	atomic_store_explicit(&v->playing, false, memory_order_release);
+	atomic_store_explicit(&v->done,    false, memory_order_release);
+	atomic_store_explicit(&v->looping, false, memory_order_release);
 	v->fire_forget = false;
-	v->done = false;
+
+	atomic_store_explicit(&v->active, true, memory_order_release);
 
 	return (spel_audio_voice)v;
 }
@@ -103,43 +100,63 @@ spel_api void spel_audio_voice_destroy(spel_audio_voice voice)
 		return;
 	}
 
-	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
-
-	v->playing = false;
-
-	if (v->decoder)
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
 	{
-		ma_decoder_uninit(v->decoder);
-		spel_memory_free(v->decoder);
-		v->decoder = NULL;
+		return;
 	}
 
-	memset(v, 0, sizeof(*v));
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_DESTROY;
+	cmd.voice_index = idx;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping destroy for voice %d", idx);
+	}
 }
 
 spel_api void spel_audio_voice_play(spel_audio_voice voice)
 {
-	if (!voice)
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, voice);
+	if (idx < 0)
 	{
 		return;
 	}
-	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
-	v->done = false;
-	v->playing = true;
+
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_PLAY;
+	cmd.voice_index = idx;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping PLAY for voice %d", idx);
+	}
 }
 
 spel_api void spel_audio_voice_stop(spel_audio_voice voice)
 {
-	if (!voice)
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, voice);
+	if (idx < 0)
 	{
 		return;
 	}
-	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
-	v->playing = false;
 
-	if (v->decoder)
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_STOP;
+	cmd.voice_index = idx;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
 	{
-		ma_decoder_seek_to_pcm_frame(v->decoder, 0);
+		spel_warn("audio cmd ring full, dropping STOP for voice %d", idx);
 	}
 }
 
@@ -149,7 +166,7 @@ spel_api bool spel_audio_voice_playing(spel_audio_voice voice)
 	{
 		return false;
 	}
-	return ((spel_audio_voice_t*)voice)->playing;
+	return atomic_load_explicit(&((spel_audio_voice_t*)voice)->playing, memory_order_acquire);
 }
 
 spel_api bool spel_audio_voice_done(spel_audio_voice voice)
@@ -158,16 +175,27 @@ spel_api bool spel_audio_voice_done(spel_audio_voice voice)
 	{
 		return false;
 	}
-	return ((spel_audio_voice_t*)voice)->done;
+	return atomic_load_explicit(&((spel_audio_voice_t*)voice)->done, memory_order_acquire);
 }
 
 spel_api void spel_audio_voice_volume_set(spel_audio_voice voice, float volume)
 {
-	if (!voice)
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, voice);
+	if (idx < 0)
 	{
 		return;
 	}
-	((spel_audio_voice_t*)voice)->volume = volume;
+
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_VOLUME;
+	cmd.voice_index = idx;
+	cmd.float_value = volume;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping VOLUME for voice %d", idx);
+	}
 }
 
 spel_api float spel_audio_voice_volume_get(spel_audio_voice voice)
@@ -181,13 +209,22 @@ spel_api float spel_audio_voice_volume_get(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_pan_set(spel_audio_voice voice, float pan)
 {
-	if (!voice)
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, voice);
+	if (idx < 0)
 	{
 		return;
 	}
-	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
-	v->pan = pan;
-	compute_pan_factors(pan, &v->pan_l, &v->pan_r);
+
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_PAN;
+	cmd.voice_index = idx;
+	cmd.float_value = pan;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping PAN for voice %d", idx);
+	}
 }
 
 spel_api float spel_audio_voice_pan(spel_audio_voice voice)
@@ -201,11 +238,22 @@ spel_api float spel_audio_voice_pan(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_looping_set(spel_audio_voice voice, bool loop)
 {
-	if (!voice)
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, voice);
+	if (idx < 0)
 	{
 		return;
 	}
-	((spel_audio_voice_t*)voice)->looping = loop;
+
+	spel_audio_cmd cmd;
+	cmd.type        = SPEL_AUDIO_CMD_LOOP;
+	cmd.voice_index = idx;
+	cmd.bool_value  = loop;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping LOOP for voice %d", idx);
+	}
 }
 
 spel_api bool spel_audio_voice_looping(spel_audio_voice voice)
@@ -214,7 +262,7 @@ spel_api bool spel_audio_voice_looping(spel_audio_voice voice)
 	{
 		return false;
 	}
-	return ((spel_audio_voice_t*)voice)->looping;
+	return atomic_load_explicit(&((spel_audio_voice_t*)voice)->looping, memory_order_acquire);
 }
 
 spel_api spel_audio_voice spel_audio_play(spel_audio_source source, bool loop)
@@ -225,10 +273,29 @@ spel_api spel_audio_voice spel_audio_play(spel_audio_source source, bool loop)
 		return NULL;
 	}
 
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	int idx = voice_index(state, v);
+	if (idx < 0)
+	{
+		return NULL;
+	}
+
 	spel_audio_voice_t* vp = (spel_audio_voice_t*)v;
-	vp->looping = loop;
 	vp->fire_forget = true;
-	vp->playing = true;
+
+	spel_audio_cmd cmd1;
+	cmd1.type        = SPEL_AUDIO_CMD_PLAY;
+	cmd1.voice_index = idx;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd1);
+
+	spel_audio_cmd cmd2;
+	cmd2.type        = SPEL_AUDIO_CMD_LOOP;
+	cmd2.voice_index = idx;
+	cmd2.bool_value  = loop;
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd2))
+	{
+		spel_warn("audio cmd ring full, dropping LOOP for voice %d", idx);
+	}
 
 	return v;
 }
@@ -240,7 +307,9 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 	{
 		spel_audio_voice_t* v = &mixer->voices[i];
 
-		if (!v->active || !v->playing || !v->decoder)
+		if (!atomic_load_explicit(&v->active, memory_order_acquire)
+			|| !atomic_load_explicit(&v->playing, memory_order_acquire)
+			|| !v->decoder)
 		{
 			continue;
 		}
@@ -253,14 +322,14 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 
 		if (result != MA_SUCCESS || frames_read == 0)
 		{
-			v->playing = false;
-			v->done = true;
+			atomic_store_explicit(&v->playing, false, memory_order_release);
+			atomic_store_explicit(&v->done, true, memory_order_release);
 			continue;
 		}
 
 		float vol = v->volume;
-		float l = vol * v->pan_l;
-		float r = vol * v->pan_r;
+		float l   = vol * v->pan_l;
+		float r   = vol * v->pan_r;
 
 		if (channels == 1)
 		{
@@ -273,21 +342,21 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 		{
 			for (ma_uint32 f = 0; f < frames_read; f++)
 			{
-				output[(size_t)(f * 2)] += scratch[(size_t)(f * 2)] * l;
-				output[(f * 2) + 1] += scratch[(f * 2) + 1] * r;
+				output[(size_t)(f * 2)]     += scratch[(size_t)(f * 2)]     * l;
+				output[(size_t)(f * 2) + 1] += scratch[(size_t)(f * 2) + 1] * r;
 			}
 		}
 
 		if (frames_read < frameCount)
 		{
-			if (v->looping)
+			if (atomic_load_explicit(&v->looping, memory_order_relaxed))
 			{
 				ma_decoder_seek_to_pcm_frame(v->decoder, 0);
 			}
 			else
 			{
-				v->playing = false;
-				v->done = true;
+				atomic_store_explicit(&v->playing, false, memory_order_release);
+				atomic_store_explicit(&v->done, true, memory_order_release);
 			}
 		}
 	}
@@ -304,9 +373,30 @@ spel_hidden void spel_audio_cleanup(void)
 	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
 	{
 		spel_audio_voice_t* v = &state->mixer.voices[i];
-		if (v->fire_forget && v->done)
+
+		if (v->fire_forget
+			&& atomic_load_explicit(&v->done, memory_order_acquire))
 		{
-			spel_audio_voice_destroy((spel_audio_voice)v);
+			if (v->decoder)
+			{
+				ma_decoder_uninit(v->decoder);
+				spel_memory_free(v->decoder);
+				v->decoder = NULL;
+			}
+			memset(v, 0, sizeof(*v));
+			continue;
+		}
+
+		if (!atomic_load_explicit(&v->active, memory_order_acquire)
+			&& v->decoder != NULL)
+		{
+			if (v->decoder)
+			{
+				ma_decoder_uninit(v->decoder);
+				spel_memory_free(v->decoder);
+				v->decoder = NULL;
+			}
+			memset(v, 0, sizeof(*v));
 		}
 	}
 }

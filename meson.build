@@ -34,6 +34,7 @@ sources = [
     'src/audio/audio_device.c',
     'src/audio/audio_source.c',
     'src/audio/audio_mixer.c',
+    'src/audio/audio_cmd.c',
 
     'src/gfx/gfx_canvas.c',
     'src/gfx/canvas/canvas_path.c',

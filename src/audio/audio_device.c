@@ -20,6 +20,8 @@ static void device_callback(ma_device* device, void* output, const void* input,
 
 	memset(output, 0, (__ssize_t)frameCount * state->channels * sizeof(float));
 
+	spel_audio_cmd_process(&state->mixer, &state->cmd_ring);
+
 	spel_audio_mixer_process(&state->mixer, (float*)output, frameCount, state->channels,
 							 state->scratch);
 }
