@@ -29,7 +29,13 @@ spel_api void spel_audio_voice_distortion_set(spel_audio_voice voice, float driv
 spel_api void spel_audio_voice_lpf_set(spel_audio_voice voice, float cutoffHz);
 spel_api void spel_audio_voice_hpf_set(spel_audio_voice voice, float cutoffHz);
 
-// called each frame to clean voices
+spel_api void spel_audio_voice_delay_set(spel_audio_voice voice, float delayMs,
+										 float feedback, float mix);
+spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
+										   float depthMs, float mix);
+spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
+										  float depthMs, float mix, int voices);
+
 spel_hidden void spel_audio_cleanup(void);
 
 #endif

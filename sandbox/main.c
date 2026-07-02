@@ -27,10 +27,13 @@ static spel_audio_source sfx_reset;
 static spel_audio_voice bgm;
 
 // DSP effect toggle state — keys 1-9
-// Keys 1-3: existing effects; 4-9: reserved for future effects
+// Keys 1-3: existing effects; 4-6: Phase 2 time-domain effects
 static bool fx_distortion_on;
 static bool fx_lpf_on;
 static bool fx_hpf_on;
+static bool fx_delay_on;
+static bool fx_flanger_on;
+static bool fx_chorus_on;
 
 static bool wall_was_at_top;
 static bool wall_was_at_bottom;
@@ -98,12 +101,23 @@ void spel_update(double dt)
 		spel_audio_voice_hpf_set(bgm, fx_hpf_on ? 5000.0f : 0.0f);
 	}
 
-	// if (spel_input_key_pressed(SPEL_KEY_4)) { ... }
-	// if (spel_input_key_pressed(SPEL_KEY_5)) { ... }
-	// if (spel_input_key_pressed(SPEL_KEY_6)) { ... }
-	// if (spel_input_key_pressed(SPEL_KEY_7)) { ... }
-	// if (spel_input_key_pressed(SPEL_KEY_8)) { ... }
-	// if (spel_input_key_pressed(SPEL_KEY_9)) { ... }
+	if (spel_input_key_pressed(SPEL_KEY_4))
+	{
+		fx_delay_on = !fx_delay_on;
+		spel_audio_voice_delay_set(bgm, fx_delay_on ? 1500.0f : 0.0f, 0.4f, 0.35f);
+	}
+	if (spel_input_key_pressed(SPEL_KEY_5))
+	{
+		fx_flanger_on = !fx_flanger_on;
+		spel_audio_voice_flanger_set(bgm, fx_flanger_on ? 2.0f : 0.0f,
+									  fx_flanger_on ? 8.0f : 0.0f, 0.4f);
+	}
+	if (spel_input_key_pressed(SPEL_KEY_6))
+	{
+		fx_chorus_on = !fx_chorus_on;
+		spel_audio_voice_chorus_set(bgm, fx_chorus_on ? 0.3f : 0.0f,
+									 fx_chorus_on ? 1.0f : 0.0f, 0.5f, 9);
+	}
 
 	// 500 px/s basically
 	// we subtract instead of adding because, in screen space, y increases
@@ -243,11 +257,13 @@ void spel_draw()
 	//
 	spel_canvas_font_size_set(18);
 	spel_canvas_fill_color_set(spel_color_hexa(0x00000088));
-	spel_canvas_draw_rect(spel_rect(4, spel.window.height - 24, 320, 20));
+	spel_canvas_draw_rect(spel_rect(4, spel.window.height - 24, 540, 20));
 	spel_canvas_print(spel_vec2(8, spel.window.height - 21),
-					  "[1] dist:%-3s  [2] lpf:%-3s  [3] hpf:%-3s  [4-9] reserved",
+					  "[1]dist:%-3s [2]lpf:%-3s [3]hpf:%-3s "
+					  "[4]dly:%-3s [5]flg:%-3s [6]cho:%-3s",
 					  fx_distortion_on ? "ON" : "off", fx_lpf_on ? "ON" : "off",
-					  fx_hpf_on ? "ON" : "off");
+					  fx_hpf_on ? "ON" : "off", fx_delay_on ? "ON" : "off",
+					  fx_flanger_on ? "ON" : "off", fx_chorus_on ? "ON" : "off");
 
 	spel_canvas_end();
 }

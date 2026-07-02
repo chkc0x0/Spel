@@ -24,7 +24,7 @@ static void device_callback(ma_device* device, void* output, const void* input,
 	spel_audio_cmd_process(&state->mixer, &state->cmd_ring);
 
 	spel_audio_mixer_process(&state->mixer, (float*)output, frameCount, state->channels,
-							 state->scratch);
+							 state->scratch, state->sample_rate);
 }
 
 spel_api bool spel_audio_init(const spel_audio_config* config)

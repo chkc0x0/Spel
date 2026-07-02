@@ -22,6 +22,9 @@ typedef enum
 	SPEL_AUDIO_CMD_DISTORTION_DRIVE,
 	SPEL_AUDIO_CMD_LPF_COEFF,
 	SPEL_AUDIO_CMD_HPF_COEFF,
+	SPEL_AUDIO_CMD_DELAY_PARAMS,
+	SPEL_AUDIO_CMD_FLANGER_PARAMS,
+	SPEL_AUDIO_CMD_CHORUS_PARAMS,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -30,8 +33,8 @@ typedef struct
 	int voice_index;
 	union
 	{
-		float float_value;   /* single-float params */
-		bool  bool_value;    /* toggle params */
+		float float_value; /* single-float params */
+		bool bool_value;   /* toggle params */
 		float floats[4];
 	};
 } spel_audio_cmd;
@@ -54,6 +57,40 @@ typedef struct
 	float prev[2];
 } spel_audio_effect_onepole_t;
 
+typedef struct
+{
+	float* buffer;
+	uint32_t cap;
+	uint32_t delay_frames;
+	uint32_t wpos;
+	float feedback;
+	float mix;
+} spel_audio_effect_delay_t;
+
+typedef struct
+{
+	float* buffer;
+	uint32_t cap;
+	uint32_t wpos;
+	float lfo_phase;
+	float rate;
+	float depth_frames;
+	float mix;
+} spel_audio_effect_flanger_t;
+
+typedef struct
+{
+	float* buffer;
+	uint32_t cap;
+	uint32_t wpos;
+	float lfo_phase[4];
+	float base_delay[4];
+	float rate;
+	float depth_frames;
+	float mix;
+	int voices;
+} spel_audio_effect_chorus_t;
+
 struct spel_audio_voice_t
 {
 	ma_decoder* decoder;
@@ -69,8 +106,11 @@ struct spel_audio_voice_t
 	atomic_uint start_frame;
 	struct desc_bridge* desc_bridge; // non-null only for custom decoders
 	spel_audio_effect_distortion_t* distortion;
-	spel_audio_effect_onepole_t*    lpf;
-	spel_audio_effect_onepole_t*    hpf;
+	spel_audio_effect_onepole_t* lpf;
+	spel_audio_effect_onepole_t* hpf;
+	spel_audio_effect_delay_t* delay;
+	spel_audio_effect_flanger_t* flanger;
+	spel_audio_effect_chorus_t* chorus;
 };
 
 typedef struct spel_audio_voice_t spel_audio_voice_t;
@@ -108,7 +148,8 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 										spel_audio_cmd_ring* ring);
 
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
-							  ma_uint32 frameCount, uint32_t channels, float* scratch);
+							  ma_uint32 frameCount, uint32_t channels, float* scratch,
+							  uint32_t sampleRate);
 
 spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v);
 

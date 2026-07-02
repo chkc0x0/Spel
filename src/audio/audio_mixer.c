@@ -104,6 +104,33 @@ spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
 		spel_memory_free(v->hpf);
 		v->hpf = NULL;
 	}
+	if (v->delay)
+	{
+		if (v->delay->buffer)
+		{
+			spel_memory_free(v->delay->buffer);
+		}
+		spel_memory_free(v->delay);
+		v->delay = NULL;
+	}
+	if (v->flanger)
+	{
+		if (v->flanger->buffer)
+		{
+			spel_memory_free(v->flanger->buffer);
+		}
+		spel_memory_free(v->flanger);
+		v->flanger = NULL;
+	}
+	if (v->chorus)
+	{
+		if (v->chorus->buffer)
+		{
+			spel_memory_free(v->chorus->buffer);
+		}
+		spel_memory_free(v->chorus);
+		v->chorus = NULL;
+	}
 }
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
@@ -630,8 +657,271 @@ spel_api void spel_audio_voice_hpf_set(spel_audio_voice voice, float cutoffHz)
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 }
 
+spel_api void spel_audio_voice_delay_set(spel_audio_voice voice, float delayMs,
+										 float feedback, float mix)
+{
+	if (!voice)
+	{
+		return;
+	}
+
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (delayMs <= 0.0F || mix <= 0.0F)
+	{
+		if (v->delay)
+		{
+			if (v->delay->buffer)
+			{
+				spel_memory_free(v->delay->buffer);
+			}
+			spel_memory_free(v->delay);
+			v->delay = NULL;
+		}
+		return;
+	}
+
+	if (!v->delay)
+	{
+		v->delay = (spel_audio_effect_delay_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_delay_t), SPEL_MEM_TAG_AUDIO);
+		if (!v->delay)
+		{
+			return;
+		}
+		memset(v->delay, 0, sizeof(*v->delay));
+	}
+
+	uint32_t frames_needed =
+		(uint32_t)((delayMs * 0.001F * (float)state->sample_rate) + 1.0F);
+	if (!v->delay->buffer || v->delay->cap < frames_needed)
+	{
+		float* newbuf = (float*)spel_memory_malloc(
+			(__ssize_t)(frames_needed * state->channels) * sizeof(float),
+			SPEL_MEM_TAG_AUDIO);
+		if (newbuf)
+		{
+			memset(newbuf, 0,
+				   (__ssize_t)(frames_needed * state->channels) * sizeof(float));
+			if (v->delay->buffer)
+			{
+				spel_memory_free(v->delay->buffer);
+			}
+			v->delay->buffer = newbuf;
+			v->delay->cap = frames_needed;
+		}
+		else
+		{
+			return;
+		}
+	}
+
+	v->delay->delay_frames = (frames_needed > 0) ? frames_needed - 1 : 0;
+	v->delay->wpos = 0;
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_DELAY_PARAMS;
+	cmd.voice_index = idx;
+	cmd.floats[0] = feedback;
+	cmd.floats[1] = mix;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
+										   float depthMs, float mix)
+{
+	if (!voice)
+	{
+		return;
+	}
+
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (rateHz <= 0.0F || depthMs <= 0.0F || mix <= 0.0F)
+	{
+		if (v->flanger)
+		{
+			if (v->flanger->buffer)
+			{
+				spel_memory_free(v->flanger->buffer);
+			}
+			spel_memory_free(v->flanger);
+			v->flanger = NULL;
+		}
+		return;
+	}
+
+	if (!v->flanger)
+	{
+		v->flanger = (spel_audio_effect_flanger_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_flanger_t), SPEL_MEM_TAG_AUDIO);
+		if (!v->flanger)
+		{
+			return;
+		}
+		memset(v->flanger, 0, sizeof(*v->flanger));
+	}
+
+	uint32_t frames_needed =
+		(uint32_t)((5.0F * 0.001F * (float)state->sample_rate) + 1.0F);
+	if (!v->flanger->buffer || v->flanger->cap < frames_needed)
+	{
+		float* newbuf = (float*)spel_memory_malloc(
+			(__ssize_t)(frames_needed * state->channels) * sizeof(float),
+			SPEL_MEM_TAG_AUDIO);
+		if (newbuf)
+		{
+			memset(newbuf, 0,
+				   (__ssize_t)(frames_needed * state->channels) * sizeof(float));
+			if (v->flanger->buffer)
+			{
+				spel_memory_free(v->flanger->buffer);
+			}
+			v->flanger->buffer = newbuf;
+			v->flanger->cap = frames_needed;
+		}
+		else
+		{
+			return;
+		}
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_FLANGER_PARAMS;
+	cmd.voice_index = idx;
+	cmd.floats[0] = rateHz;
+	cmd.floats[1] = (float)frames_needed - 1.0F;
+	cmd.floats[2] = depthMs * 0.001F * (float)state->sample_rate;
+	cmd.floats[3] = mix;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
+										  float depthMs, float mix, int voices)
+{
+	if (!voice)
+	{
+		return;
+	}
+
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (voices < 2)
+	{
+		voices = 2;
+	}
+	if (voices > 4)
+	{
+		voices = 4;
+	}
+
+	if (rateHz <= 0.0F || depthMs <= 0.0F || mix <= 0.0F)
+	{
+		if (v->chorus)
+		{
+			if (v->chorus->buffer)
+			{
+				spel_memory_free(v->chorus->buffer);
+			}
+			spel_memory_free(v->chorus);
+			v->chorus = NULL;
+		}
+		return;
+	}
+
+	if (!v->chorus)
+	{
+		v->chorus = (spel_audio_effect_chorus_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_chorus_t), SPEL_MEM_TAG_AUDIO);
+		if (!v->chorus)
+		{
+			return;
+		}
+		memset(v->chorus, 0, sizeof(*v->chorus));
+	}
+
+	uint32_t frames_needed =
+		(uint32_t)((40.0F * 0.001F * (float)state->sample_rate) + 1.0F);
+	if (!v->chorus->buffer || v->chorus->cap < frames_needed)
+	{
+		float* newbuf = (float*)spel_memory_malloc(
+			(__ssize_t)(frames_needed * state->channels) * sizeof(float),
+			SPEL_MEM_TAG_AUDIO);
+		if (newbuf)
+		{
+			memset(newbuf, 0,
+				   (__ssize_t)(frames_needed * state->channels) * sizeof(float));
+			if (v->chorus->buffer)
+			{
+				spel_memory_free(v->chorus->buffer);
+			}
+			v->chorus->buffer = newbuf;
+			v->chorus->cap = frames_needed;
+		}
+		else
+		{
+			return;
+		}
+	}
+
+	float sr = (float)state->sample_rate;
+	for (int vi = 0; vi < voices; vi++)
+	{
+		v->chorus->base_delay[vi] = (float)((15 + (vi * 5))) * 0.001F * sr;
+		if (v->chorus->base_delay[vi] >= (float)frames_needed - 1.0F)
+		{
+			v->chorus->base_delay[vi] = (float)frames_needed - 2.0F;
+		}
+	}
+	v->chorus->wpos = 0;
+	v->chorus->voices = voices;
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_CHORUS_PARAMS;
+	cmd.voice_index = idx;
+	cmd.floats[0] = rateHz;
+	cmd.floats[1] = depthMs * 0.001F * sr;
+	cmd.floats[2] = mix;
+	cmd.floats[3] = (float)voices;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
-							  ma_uint32 frameCount, uint32_t channels, float* scratch)
+							  ma_uint32 frameCount, uint32_t channels, float* scratch,
+							  uint32_t sampleRate)
 {
 	atomic_fetch_add_explicit(&mixer->frame_counter, 1, memory_order_relaxed);
 
@@ -696,6 +986,104 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 					scratch[s] = scratch[s] - prev;
 				}
 				v->hpf->prev[ch] = prev;
+			}
+		}
+
+		if (v->delay && v->delay->buffer && v->delay->delay_frames > 0)
+		{
+			spel_audio_effect_delay_t* d = v->delay;
+			for (ma_uint32 f = 0; f < frames_read; f++)
+			{
+				uint32_t rpos = (d->wpos + d->cap - d->delay_frames) % d->cap;
+				for (ma_uint32 ch = 0; ch < channels; ch++)
+				{
+					ma_uint32 s = (f * channels) + ch;
+					float in = scratch[s];
+					float delayed = d->buffer[(rpos * channels) + ch];
+					d->buffer[(d->wpos * channels) + ch] = in + (d->feedback * delayed);
+					scratch[s] = in + (d->mix * delayed);
+				}
+				d->wpos = (d->wpos + 1) % d->cap;
+			}
+		}
+
+		if (v->flanger && v->flanger->buffer)
+		{
+			spel_audio_effect_flanger_t* f = v->flanger;
+			float base = (float)f->cap * 0.5F;
+			float two_pi = 2.0F * (float)M_PI;
+			float phase_inc = two_pi * f->rate / (float)sampleRate;
+
+			for (ma_uint32 fi = 0; fi < frames_read; fi++)
+			{
+				float lfo = ((sinf(f->lfo_phase) * 0.5F) + 0.5F) * f->depth_frames;
+				uint32_t delay_f = (uint32_t)(base + lfo + 0.5F);
+				if (delay_f >= f->cap)
+				{
+					delay_f = f->cap - 1;
+				}
+				uint32_t rpos = (f->wpos + f->cap - delay_f) % f->cap;
+
+				for (ma_uint32 ch = 0; ch < channels; ch++)
+				{
+					ma_uint32 s = (fi * channels) + ch;
+					float in = scratch[s];
+					float delayed = f->buffer[(rpos * channels) + ch];
+					f->buffer[(f->wpos * channels) + ch] = in;
+					scratch[s] = in + (f->mix * delayed);
+				}
+
+				f->lfo_phase += phase_inc;
+				if (f->lfo_phase >= two_pi)
+				{
+					f->lfo_phase -= two_pi;
+				}
+				f->wpos = (f->wpos + 1) % f->cap;
+			}
+		}
+
+		if (v->chorus && v->chorus->buffer)
+		{
+			spel_audio_effect_chorus_t* c = v->chorus;
+			int nv = c->voices;
+			float two_pi = 2.0F * (float)M_PI;
+			float phase_inc = two_pi * c->rate / (float)sampleRate;
+
+			for (ma_uint32 fi = 0; fi < frames_read; fi++)
+			{
+				for (ma_uint32 ch = 0; ch < channels; ch++)
+				{
+					ma_uint32 s = (fi * channels) + ch;
+					float in = scratch[s];
+					float sum = 0.0F;
+
+					for (int vi = 0; vi < nv; vi++)
+					{
+						float lfo =
+							((sinf(c->lfo_phase[vi]) * 0.5F) + 0.5F) * c->depth_frames;
+						float delay_f = c->base_delay[vi] + lfo;
+						uint32_t delay_i = (uint32_t)(delay_f + 0.5F);
+						if (delay_i >= c->cap)
+						{
+							delay_i = c->cap - 1;
+						}
+						uint32_t rpos = (c->wpos + c->cap - delay_i) % c->cap;
+						sum += c->buffer[(rpos * channels) + ch];
+					}
+
+					c->buffer[(c->wpos * channels) + ch] = in;
+					scratch[s] = in + (c->mix * sum / (float)nv);
+				}
+
+				for (int vi = 0; vi < nv; vi++)
+				{
+					c->lfo_phase[vi] += phase_inc;
+					if (c->lfo_phase[vi] >= two_pi)
+					{
+						c->lfo_phase[vi] -= two_pi;
+					}
+				}
+				c->wpos = (c->wpos + 1) % c->cap;
 			}
 		}
 

@@ -138,6 +138,33 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			}
 			break;
 
+		case SPEL_AUDIO_CMD_DELAY_PARAMS:
+			if (v->delay)
+			{
+				v->delay->feedback = cmd.floats[0];
+				v->delay->mix = cmd.floats[1];
+			}
+			break;
+
+		case SPEL_AUDIO_CMD_FLANGER_PARAMS:
+			if (v->flanger)
+			{
+				v->flanger->rate = cmd.floats[0];
+				v->flanger->depth_frames = cmd.floats[2];
+				v->flanger->mix = cmd.floats[3];
+			}
+			break;
+
+		case SPEL_AUDIO_CMD_CHORUS_PARAMS:
+			if (v->chorus)
+			{
+				v->chorus->rate = cmd.floats[0];
+				v->chorus->depth_frames = cmd.floats[1];
+				v->chorus->mix = cmd.floats[2];
+				v->chorus->voices = (int)cmd.floats[3];
+			}
+			break;
+
 		default:
 			break;
 		}
