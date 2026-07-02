@@ -1,9 +1,11 @@
 #ifndef SPEL_AUDIO_MIXER
 #define SPEL_AUDIO_MIXER
-#include "core/macros.h"
 #include "audio/audio_types.h"
+#include "core/macros.h"
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source);
+spel_api spel_audio_voice
+spel_audio_voice_create_from_desc(const spel_audio_source_desc* desc);
 spel_api spel_audio_voice spel_audio_voice_load(const char* path);
 spel_api void spel_audio_voice_destroy(spel_audio_voice voice);
 

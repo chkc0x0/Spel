@@ -1,3 +1,4 @@
+#include "utils/internal/stb_vorbis.h"
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio/audio_device.h"
 #include "audio/audio_internal.h"
@@ -118,6 +119,10 @@ spel_api void spel_audio_shutdown(void)
 		{
 			ma_decoder_uninit(v->decoder);
 			spel_memory_free(v->decoder);
+		}
+		if (v->desc_bridge)
+		{
+			spel_memory_free(v->desc_bridge);
 		}
 	}
 
