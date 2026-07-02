@@ -61,7 +61,8 @@ static void pan_factors(float pan, float* l, float* r)
 	}
 }
 
-spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer, spel_audio_cmd_ring* ring)
+spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
+										spel_audio_cmd_ring* ring)
 {
 	spel_audio_cmd cmd;
 
@@ -77,46 +78,68 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer, spel_audio_cm
 
 		switch (cmd.type)
 		{
-			case SPEL_AUDIO_CMD_PLAY:
-				atomic_store_explicit(&v->playing, true, memory_order_release);
-				atomic_store_explicit(&v->done, false, memory_order_release);
-				atomic_store_explicit(&v->start_frame,
-					atomic_load_explicit(&mixer->frame_counter, memory_order_relaxed),
-					memory_order_release);
-				break;
+		case SPEL_AUDIO_CMD_PLAY:
+			atomic_store_explicit(&v->playing, true, memory_order_release);
+			atomic_store_explicit(&v->done, false, memory_order_release);
+			atomic_store_explicit(
+				&v->start_frame,
+				atomic_load_explicit(&mixer->frame_counter, memory_order_relaxed),
+				memory_order_release);
+			break;
 
-			case SPEL_AUDIO_CMD_STOP:
-				atomic_store_explicit(&v->playing, false, memory_order_release);
-				if (v->decoder)
-				{
-					ma_decoder_seek_to_pcm_frame(v->decoder, 0);
-				}
-				break;
+		case SPEL_AUDIO_CMD_STOP:
+			atomic_store_explicit(&v->playing, false, memory_order_release);
+			if (v->decoder)
+			{
+				ma_decoder_seek_to_pcm_frame(v->decoder, 0);
+			}
+			break;
 
-			case SPEL_AUDIO_CMD_VOLUME:
-				v->volume = cmd.float_value;
-				break;
+		case SPEL_AUDIO_CMD_VOLUME:
+			v->volume = cmd.float_value;
+			break;
 
-			case SPEL_AUDIO_CMD_PAN:
-				v->pan = cmd.float_value;
-				pan_factors(cmd.float_value, &v->pan_l, &v->pan_r);
-				break;
+		case SPEL_AUDIO_CMD_PAN:
+			v->pan = cmd.float_value;
+			pan_factors(cmd.float_value, &v->pan_l, &v->pan_r);
+			break;
 
-			case SPEL_AUDIO_CMD_DESTROY:
-				atomic_store_explicit(&v->playing, false, memory_order_release);
-				atomic_store_explicit(&v->active, false, memory_order_release);
-				break;
+		case SPEL_AUDIO_CMD_DESTROY:
+			atomic_store_explicit(&v->playing, false, memory_order_release);
+			atomic_store_explicit(&v->active, false, memory_order_release);
+			break;
 
-			case SPEL_AUDIO_CMD_LOOP:
-				atomic_store_explicit(&v->looping, cmd.bool_value, memory_order_release);
-				break;
+		case SPEL_AUDIO_CMD_LOOP:
+			atomic_store_explicit(&v->looping, cmd.bool_value, memory_order_release);
+			break;
 
-			case SPEL_AUDIO_CMD_PAUSE:
-				atomic_store_explicit(&v->playing, false, memory_order_release);
-				break;
+		case SPEL_AUDIO_CMD_PAUSE:
+			atomic_store_explicit(&v->playing, false, memory_order_release);
+			break;
 
-			default:
-				break;
+		case SPEL_AUDIO_CMD_DISTORTION_DRIVE:
+			if (v->distortion)
+			{
+				v->distortion->drive = cmd.float_value;
+			}
+			break;
+
+		case SPEL_AUDIO_CMD_LPF_COEFF:
+			if (v->lpf)
+			{
+				v->lpf->coeff = cmd.float_value;
+			}
+			break;
+
+		case SPEL_AUDIO_CMD_HPF_COEFF:
+			if (v->hpf)
+			{
+				v->hpf->coeff = cmd.float_value;
+			}
+			break;
+
+		default:
+			break;
 		}
 	}
 }

@@ -25,6 +25,10 @@ spel_api bool spel_audio_voice_looping(spel_audio_voice voice);
 // create and play immediately, auto-freed when done
 spel_api spel_audio_voice spel_audio_play(spel_audio_source source, bool loop);
 
+spel_api void spel_audio_voice_distortion_set(spel_audio_voice voice, float drive);
+spel_api void spel_audio_voice_lpf_set(spel_audio_voice voice, float cutoffHz);
+spel_api void spel_audio_voice_hpf_set(spel_audio_voice voice, float cutoffHz);
+
 // called each frame to clean voices
 spel_hidden void spel_audio_cleanup(void);
 

@@ -87,6 +87,25 @@ static int voice_index(spel_audio_state_t* state, spel_audio_voice voice)
 	return idx;
 }
 
+spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
+{
+	if (v->distortion)
+	{
+		spel_memory_free(v->distortion);
+		v->distortion = NULL;
+	}
+	if (v->lpf)
+	{
+		spel_memory_free(v->lpf);
+		v->lpf = NULL;
+	}
+	if (v->hpf)
+	{
+		spel_memory_free(v->hpf);
+		v->hpf = NULL;
+	}
+}
+
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
 {
 	if (!source)
@@ -146,6 +165,7 @@ spel_audio_voice_create_from_desc(const spel_audio_source_desc* desc)
 			spel_memory_free(old->desc_bridge);
 			old->desc_bridge = NULL;
 		}
+		spel_audio_voice_free_effects(old);
 
 		memset(old, 0, sizeof(*old));
 
@@ -472,6 +492,144 @@ spel_api spel_audio_voice spel_audio_play(spel_audio_source source, bool loop)
 	return v;
 }
 
+spel_api void spel_audio_voice_distortion_set(spel_audio_voice voice, float drive)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (drive > 0.0F && !v->distortion)
+	{
+		v->distortion = (spel_audio_effect_distortion_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_distortion_t), SPEL_MEM_TAG_AUDIO);
+		if (!v->distortion)
+		{
+			return;
+		}
+		memset(v->distortion, 0, sizeof(*v->distortion));
+	}
+
+	if (v->distortion)
+	{
+		spel_audio_cmd cmd;
+		cmd.type = SPEL_AUDIO_CMD_DISTORTION_DRIVE;
+		cmd.voice_index = idx;
+		cmd.float_value = drive;
+		spel_audio_cmd_push(&state->cmd_ring, &cmd);
+	}
+}
+
+spel_api void spel_audio_voice_lpf_set(spel_audio_voice voice, float cutoffHz)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (cutoffHz > 0.0F && !v->lpf)
+	{
+		v->lpf = (spel_audio_effect_onepole_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_onepole_t), SPEL_MEM_TAG_AUDIO);
+		if (!v->lpf)
+		{
+			return;
+		}
+		memset(v->lpf, 0, sizeof(*v->lpf));
+	}
+
+	if (!v->lpf)
+	{
+		return;
+	}
+
+	float coeff = 0.0F;
+	if (cutoffHz > 0.0F)
+	{
+		float w = 2.0F * (float)M_PI * cutoffHz / (float)state->sample_rate;
+		coeff = 1.0F - expf(-w);
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_LPF_COEFF;
+	cmd.voice_index = idx;
+	cmd.float_value = coeff;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_voice_hpf_set(spel_audio_voice voice, float cutoffHz)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (cutoffHz > 0.0F && !v->hpf)
+	{
+		v->hpf = (spel_audio_effect_onepole_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_onepole_t), SPEL_MEM_TAG_AUDIO);
+		if (!v->hpf)
+		{
+			return;
+		}
+		memset(v->hpf, 0, sizeof(*v->hpf));
+	}
+
+	if (!v->hpf)
+	{
+		return;
+	}
+
+	float coeff = 0.0F;
+	if (cutoffHz > 0.0F)
+	{
+		float w = 2.0F * (float)M_PI * cutoffHz / (float)state->sample_rate;
+		coeff = 1.0F - expf(-w);
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_HPF_COEFF;
+	cmd.voice_index = idx;
+	cmd.float_value = coeff;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							  ma_uint32 frameCount, uint32_t channels, float* scratch)
 {
@@ -501,6 +659,46 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 		}
 
 		float vol = v->volume;
+
+		if (v->distortion && v->distortion->drive > 0.0F)
+		{
+			ma_uint32 total = (ma_uint32)(frames_read * (ma_uint64)channels);
+			for (ma_uint32 s = 0; s < total; s++)
+			{
+				scratch[s] = tanhf(v->distortion->drive * scratch[s]);
+			}
+		}
+
+		if (v->lpf && v->lpf->coeff > 0.0F)
+		{
+			float a = v->lpf->coeff;
+			for (ma_uint32 ch = 0; ch < channels; ch++)
+			{
+				float prev = v->lpf->prev[ch];
+				for (ma_uint32 s = ch; s < frames_read * channels; s += channels)
+				{
+					prev += a * (scratch[s] - prev);
+					scratch[s] = prev;
+				}
+				v->lpf->prev[ch] = prev;
+			}
+		}
+
+		if (v->hpf && v->hpf->coeff > 0.0F)
+		{
+			float a = v->hpf->coeff;
+			for (ma_uint32 ch = 0; ch < channels; ch++)
+			{
+				float prev = v->hpf->prev[ch];
+				for (ma_uint32 s = ch; s < frames_read * channels; s += channels)
+				{
+					prev += a * (scratch[s] - prev);
+					scratch[s] = scratch[s] - prev;
+				}
+				v->hpf->prev[ch] = prev;
+			}
+		}
+
 		float l = vol * v->pan_l;
 		float r = vol * v->pan_r;
 
@@ -560,6 +758,7 @@ spel_hidden void spel_audio_cleanup(void)
 				spel_memory_free(v->desc_bridge);
 				v->desc_bridge = NULL;
 			}
+			spel_audio_voice_free_effects(v);
 			memset(v, 0, sizeof(*v));
 			continue;
 		}
@@ -577,6 +776,7 @@ spel_hidden void spel_audio_cleanup(void)
 				spel_memory_free(v->desc_bridge);
 				v->desc_bridge = NULL;
 			}
+			spel_audio_voice_free_effects(v);
 			memset(v, 0, sizeof(*v));
 		}
 	}

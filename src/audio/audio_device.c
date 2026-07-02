@@ -124,6 +124,7 @@ spel_api void spel_audio_shutdown(void)
 		{
 			spel_memory_free(v->desc_bridge);
 		}
+		spel_audio_voice_free_effects(v);
 	}
 
 	spel_memory_free(state->scratch);

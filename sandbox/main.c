@@ -24,7 +24,14 @@ static spel_audio_source sfx_paddle;
 static spel_audio_source sfx_score;
 static spel_audio_source sfx_reset;
 
-// rising-edge guards to avoid replaying sounds each frame
+static spel_audio_voice bgm;
+
+// DSP effect toggle state — keys 1-9
+// Keys 1-3: existing effects; 4-9: reserved for future effects
+static bool fx_distortion_on;
+static bool fx_lpf_on;
+static bool fx_hpf_on;
+
 static bool wall_was_at_top;
 static bool wall_was_at_bottom;
 static bool hit_player_paddle;
@@ -49,10 +56,13 @@ void spel_load()
 		spel_rect(spel.window.width - 75, (spel.window.height / 2) - 50, 25, 100);
 
 	// load sound effects
-	sfx_wall   = spel_audio_source_load("sfx_wall.wav");
+	sfx_wall = spel_audio_source_load("sfx_wall.wav");
 	sfx_paddle = spel_audio_source_load("sfx_paddle.wav");
-	sfx_score  = spel_audio_source_load("sfx_score.wav");
-	sfx_reset  = spel_audio_source_load("sfx_reset.wav");
+	sfx_score = spel_audio_source_load("sfx_score.wav");
+	sfx_reset = spel_audio_source_load("sfx_reset.wav");
+
+	bgm = spel_audio_voice_load("test.ogg");
+	spel_audio_voice_play(bgm);
 }
 
 void spel_update(double dt)
@@ -71,6 +81,29 @@ void spel_update(double dt)
 				spel_audio_play(sfx_reset, false);
 		}
 	}
+
+	if (spel_input_key_pressed(SPEL_KEY_1))
+	{
+		fx_distortion_on = !fx_distortion_on;
+		spel_audio_voice_distortion_set(bgm, fx_distortion_on ? 4.0f : 0.0f);
+	}
+	if (spel_input_key_pressed(SPEL_KEY_2))
+	{
+		fx_lpf_on = !fx_lpf_on;
+		spel_audio_voice_lpf_set(bgm, fx_lpf_on ? 400.0f : 0.0f);
+	}
+	if (spel_input_key_pressed(SPEL_KEY_3))
+	{
+		fx_hpf_on = !fx_hpf_on;
+		spel_audio_voice_hpf_set(bgm, fx_hpf_on ? 5000.0f : 0.0f);
+	}
+
+	// if (spel_input_key_pressed(SPEL_KEY_4)) { ... }
+	// if (spel_input_key_pressed(SPEL_KEY_5)) { ... }
+	// if (spel_input_key_pressed(SPEL_KEY_6)) { ... }
+	// if (spel_input_key_pressed(SPEL_KEY_7)) { ... }
+	// if (spel_input_key_pressed(SPEL_KEY_8)) { ... }
+	// if (spel_input_key_pressed(SPEL_KEY_9)) { ... }
 
 	// 500 px/s basically
 	// we subtract instead of adding because, in screen space, y increases
@@ -155,7 +188,9 @@ void spel_update(double dt)
 		ball_reset_delay = 0.75F;
 
 		if (sfx_score)
-			spel_audio_play(sfx_score, false);
+		{
+			//spel_audio_play(sfx_score, false);
+		}
 	}
 	if (ball.center.x > spel.window.width && ball_reset_delay == -1.0F)
 	{
@@ -163,7 +198,9 @@ void spel_update(double dt)
 		ball_reset_delay = 0.75F;
 
 		if (sfx_score)
-			spel_audio_play(sfx_score, false);
+		{
+			//spel_audio_play(sfx_score, false);
+		}
 	}
 }
 
@@ -200,6 +237,17 @@ void spel_draw()
 
 	spel_canvas_font_size_set(256);
 	spel_canvas_draw_text("H8G!$", spel_vec2(100, 300));
+
+	//
+	// DSP effect HUD — bottom-left corner
+	//
+	spel_canvas_font_size_set(18);
+	spel_canvas_fill_color_set(spel_color_hexa(0x00000088));
+	spel_canvas_draw_rect(spel_rect(4, spel.window.height - 24, 320, 20));
+	spel_canvas_print(spel_vec2(8, spel.window.height - 21),
+					  "[1] dist:%-3s  [2] lpf:%-3s  [3] hpf:%-3s  [4-9] reserved",
+					  fx_distortion_on ? "ON" : "off", fx_lpf_on ? "ON" : "off",
+					  fx_hpf_on ? "ON" : "off");
 
 	spel_canvas_end();
 }
