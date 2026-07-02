@@ -80,6 +80,9 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer, spel_audio_cm
 			case SPEL_AUDIO_CMD_PLAY:
 				atomic_store_explicit(&v->playing, true, memory_order_release);
 				atomic_store_explicit(&v->done, false, memory_order_release);
+				atomic_store_explicit(&v->start_frame,
+					atomic_load_explicit(&mixer->frame_counter, memory_order_relaxed),
+					memory_order_release);
 				break;
 
 			case SPEL_AUDIO_CMD_STOP:

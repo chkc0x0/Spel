@@ -20,6 +20,35 @@ static int find_free_slot(spel_audio_mixer_t* mixer)
 	return -1;
 }
 
+static int steal_oldest_voice(spel_audio_mixer_t* mixer)
+{
+	int         oldest_idx = -1;
+	uint32_t    oldest_frame = UINT32_MAX;
+
+	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
+	{
+		spel_audio_voice_t* v = &mixer->voices[i];
+
+		if (!atomic_load_explicit(&v->active, memory_order_acquire))
+		{
+			continue;
+		}
+		if (!atomic_load_explicit(&v->playing, memory_order_acquire))
+		{
+			continue;
+		}
+
+		uint32_t start = atomic_load_explicit(&v->start_frame, memory_order_acquire);
+		if (start < oldest_frame)
+		{
+			oldest_frame = start;
+			oldest_idx = i;
+		}
+	}
+
+	return oldest_idx;
+}
+
 static int voice_index(spel_audio_state_t* state, spel_audio_voice voice)
 {
 	if (!state || !voice)
@@ -54,8 +83,30 @@ spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
 	int slot = find_free_slot(&state->mixer);
 	if (slot < 0)
 	{
-		spel_warn("no free audio voice slots (max %d)", SPEL_AUDIO_MAX_VOICES);
-		return NULL;
+		slot = steal_oldest_voice(&state->mixer);
+		if (slot < 0)
+		{
+			spel_warn("no free audio voice slots and no voice to steal (max %d)",
+					  SPEL_AUDIO_MAX_VOICES);
+			return NULL;
+		}
+
+		spel_audio_voice_t* old = &state->mixer.voices[slot];
+
+		atomic_store_explicit(&old->playing, false, memory_order_release);
+		atomic_store_explicit(&old->active, false, memory_order_release);
+
+		if (old->decoder)
+		{
+			ma_decoder_uninit(old->decoder);
+			spel_memory_free(old->decoder);
+			old->decoder = NULL;
+		}
+
+		memset(old, 0, sizeof(*old));
+
+		/* Now treat the slot as fresh — fall through to init */
+		slot = (int)(old - state->mixer.voices);
 	}
 
 	spel_audio_voice_t* v = &state->mixer.voices[slot];
@@ -303,6 +354,8 @@ spel_api spel_audio_voice spel_audio_play(spel_audio_source source, bool loop)
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							  ma_uint32 frameCount, uint32_t channels, float* scratch)
 {
+	atomic_fetch_add_explicit(&mixer->frame_counter, 1, memory_order_relaxed);
+
 	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
 	{
 		spel_audio_voice_t* v = &mixer->voices[i];

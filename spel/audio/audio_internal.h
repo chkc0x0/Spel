@@ -71,6 +71,7 @@ struct spel_audio_voice_t
 	atomic_bool active;
 	bool        fire_forget;
 	atomic_bool done;
+	atomic_uint start_frame;
 };
 
 typedef struct spel_audio_voice_t spel_audio_voice_t;
@@ -78,6 +79,7 @@ typedef struct spel_audio_voice_t spel_audio_voice_t;
 typedef struct
 {
 	spel_audio_voice_t voices[SPEL_AUDIO_MAX_VOICES];
+	atomic_uint frame_counter;
 } spel_audio_mixer_t;
 
 struct spel_audio_t
