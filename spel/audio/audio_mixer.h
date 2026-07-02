@@ -4,6 +4,7 @@
 #include "audio/audio_types.h"
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source);
+spel_api spel_audio_voice spel_audio_voice_load(const char* path);
 spel_api void spel_audio_voice_destroy(spel_audio_voice voice);
 
 spel_api void spel_audio_voice_play(spel_audio_voice voice);

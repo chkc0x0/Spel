@@ -105,7 +105,6 @@ spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
 
 		memset(old, 0, sizeof(*old));
 
-		/* Now treat the slot as fresh — fall through to init */
 		slot = (int)(old - state->mixer.voices);
 	}
 
@@ -142,6 +141,20 @@ spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
 	atomic_store_explicit(&v->active, true, memory_order_release);
 
 	return (spel_audio_voice)v;
+}
+
+spel_api spel_audio_voice spel_audio_voice_load(const char* path)
+{
+	if (!path || !*path)
+	{
+		spel_error(SPEL_ERR_INVALID_ARGUMENT, "audio path is NULL or empty");
+		return NULL;
+	}
+
+	spel_audio_source_t temp;
+	temp.path = (char*)path;
+
+	return spel_audio_voice_create((spel_audio_source)&temp);
 }
 
 spel_api void spel_audio_voice_destroy(spel_audio_voice voice)
