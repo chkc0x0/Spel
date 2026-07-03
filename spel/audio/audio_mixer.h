@@ -34,7 +34,11 @@ spel_api void spel_audio_voice_delay_set(spel_audio_voice voice, float delayMs,
 spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
 										   float depthMs, float mix);
 spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
-										  float depthMs, float mix, int voices);
+									  float depthMs, float mix, int voices);
+
+spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice,
+										float decay, float damping,
+										float preDelayMs, float mix);
 
 #define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
 
@@ -58,7 +62,14 @@ spel_audio_voice_custom_param_set(spel_audio_voice voice,
 								   uint32_t index, float value);
 
 spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice,
-										  float pitch);
+									  float pitch);
+
+spel_api void spel_audio_master_limiter_set(float thresholdDb, float attackMs,
+											float releaseMs);
+spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
+											   float attackMs, float releaseMs);
+spel_api bool spel_audio_master_limiter_enabled(void);
+spel_api bool spel_audio_master_compressor_enabled(void);
 
 spel_hidden void spel_audio_cleanup(void);
 

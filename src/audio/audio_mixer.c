@@ -163,6 +163,8 @@ spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
 	v->flanger = NULL;
 	free_buffered_effect(v->chorus);
 	v->chorus = NULL;
+	free_buffered_effect(v->reverb);
+	v->reverb = NULL;
 	free_buffered_effect(v->custom);
 	v->custom = NULL;
 	if (v->pitch_buf)
@@ -939,8 +941,7 @@ spel_api void spel_audio_voice_custom_param_set(spel_audio_voice voice, uint32_t
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 }
 
-spel_api void
-spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
+spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 {
 	if (!voice)
 	{
@@ -959,16 +960,22 @@ spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 
 	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
 
-	if (pitch < 0.001F) { pitch = 0.001F;
-}
-	if (pitch > 10.0F) {   pitch = 10.0F;
-}
+	if (pitch < 0.001F)
+	{
+		pitch = 0.001F;
+	}
+	if (pitch > 10.0F)
+	{
+		pitch = 10.0F;
+	}
 
 	if (pitch != 1.0F && !v->pitch_buf)
 	{
 		uint32_t buf_sz = state->config.buffer_size;
-		if (buf_sz == 0) { buf_sz = 512;
-}
+		if (buf_sz == 0)
+		{
+			buf_sz = 512;
+		}
 		v->pitch_buf_cap = (uint32_t)(8.0F * (float)buf_sz) + 2;
 		size_t bytes = (size_t)v->pitch_buf_cap * state->channels * sizeof(float);
 		v->pitch_buf = (float*)spel_memory_malloc(bytes, SPEL_MEM_TAG_AUDIO);
@@ -984,6 +991,129 @@ spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 	cmd.type = SPEL_AUDIO_CMD_PITCH_SET;
 	cmd.voice_index = idx;
 	cmd.float_value = pitch;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice, float decay,
+										  float damping, float preDelayMs, float mix)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+	uint32_t sr = state->sample_rate;
+
+	if (mix <= 0.0F || decay <= 0.0F)
+	{
+		free_buffered_effect(v->reverb);
+		v->reverb = NULL;
+		return;
+	}
+
+	if (!ensure_allocated((void**)&v->reverb, sizeof(spel_audio_effect_reverb_t)))
+	{
+		return;
+	}
+
+	float scale = (float)sr / 44100.0F;
+
+	static const uint32_t COMB_L_BASE[4] = {1422, 1601, 1868, 2050};
+	static const uint32_t COMB_R_BASE[4] = {1392, 1559, 1781, 2041};
+	static const uint32_t AP_BASE[2] = {240, 80};
+
+	uint32_t pre_frames = (uint32_t)((preDelayMs * 0.001F * (float)sr) + 1.0F);
+	if (pre_frames < 4)
+	{
+		pre_frames = 4;
+	}
+
+	uint32_t pre_floats = pre_frames * 2;
+	uint32_t combL_total = 0;
+	uint32_t combR_total = 0;
+	for (int i = 0; i < 4; i++)
+	{
+		combL_total += (uint32_t)(((float)COMB_L_BASE[i] * scale) + 1.0F);
+		combR_total += (uint32_t)(((float)COMB_R_BASE[i] * scale) + 1.0F);
+	}
+	uint32_t ap_total = 0;
+	for (int i = 0; i < 2; i++)
+	{
+		ap_total += (uint32_t)(((float)AP_BASE[i] * scale) + 1.0F);
+	}
+	ap_total *= 2;
+
+	uint32_t total_floats = pre_floats + combL_total + combR_total + ap_total;
+	if (!ensure_buffer(&v->reverb->buffer, &v->reverb->cap, total_floats, 1))
+	{
+		free_buffered_effect(v->reverb);
+		v->reverb = NULL;
+		return;
+	}
+
+	memset(v->reverb->damp_prev, 0, sizeof(v->reverb->damp_prev));
+
+	v->reverb->pre_offset = 0;
+	v->reverb->pre_len = pre_frames;
+
+	uint32_t offset = pre_floats;
+	for (int i = 0; i < 4; i++)
+	{
+		v->reverb->comb_l_len[i] = (uint32_t)(((float)COMB_L_BASE[i] * scale) + 1.0F);
+		if (v->reverb->comb_l_len[i] < 4)
+		{
+			v->reverb->comb_l_len[i] = 4;
+		}
+		v->reverb->comb_l_offset[i] = offset;
+		offset += v->reverb->comb_l_len[i];
+	}
+	for (int i = 0; i < 4; i++)
+	{
+		v->reverb->comb_r_len[i] = (uint32_t)(((float)COMB_R_BASE[i] * scale) + 1.0F);
+		if (v->reverb->comb_r_len[i] < 4)
+		{
+			v->reverb->comb_r_len[i] = 4;
+		}
+		v->reverb->comb_r_offset[i] = offset;
+		offset += v->reverb->comb_r_len[i];
+	}
+
+	for (int i = 0; i < 2; i++)
+	{
+		v->reverb->ap_len[i] = (uint32_t)(((float)AP_BASE[i] * scale) + 1.0F);
+		if (v->reverb->ap_len[i] < 4)
+		{
+			v->reverb->ap_len[i] = 4;
+		}
+	}
+	v->reverb->ap_l_offset[0] = offset;
+	offset += v->reverb->ap_len[0];
+	v->reverb->ap_l_offset[1] = offset;
+	offset += v->reverb->ap_len[1];
+	v->reverb->ap_r_offset[0] = offset;
+	offset += v->reverb->ap_len[0];
+	v->reverb->ap_r_offset[1] = offset;
+
+	v->reverb->wpos = 0;
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_REVERB_PARAMS;
+	cmd.voice_index = idx;
+	cmd.floats[0] = decay;
+	cmd.floats[1] = damping;
+	cmd.floats[2] = preDelayMs * 0.001F * (float)sr; /* pre-delay in frames */
+	cmd.floats[3] = mix;
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 }
 
@@ -1150,6 +1280,102 @@ static void apply_chorus_effect(float* buf, ma_uint32 frames, uint32_t channels,
 	}
 }
 
+static void apply_reverb_effect(float* buf, ma_uint32 frames, uint32_t channels,
+								spel_audio_effect_reverb_t* r, uint32_t sampleRate)
+{
+	if (!r || !r->buffer || r->mix <= 0.0F || channels < 2)
+	{
+		return;
+	}
+	(void)sampleRate;
+
+	float mix_wet = r->mix;
+	float mix_dry = 1.0F - mix_wet;
+	float decay = r->decay;
+	float damp = r->damping;
+	float cross = 0.3F;
+	float ap_a = 0.7F;
+	float tap_gain = 0.25F;
+
+	uint32_t pre_len = r->pre_len;
+	uint32_t pre_dly = (uint32_t)(r->pre_delay + 0.5F);
+	if (pre_dly > pre_len)
+	{
+		pre_dly = pre_len;
+	}
+
+	for (ma_uint32 fi = 0; fi < frames; fi++)
+	{
+		uint32_t sL = fi * channels;
+		uint32_t sR = (fi * channels) + 1;
+		float inL = buf[sL];
+		float inR = buf[sR];
+
+		uint32_t pre_wp = r->wpos % pre_len;
+		uint32_t pre_rp = (pre_wp + pre_len - pre_dly) % pre_len;
+		float preL = r->buffer[r->pre_offset + (pre_rp * 2)];
+		float preR = r->buffer[r->pre_offset + (pre_rp * 2) + 1];
+		r->buffer[r->pre_offset + (pre_wp * 2)] = inL;
+		r->buffer[r->pre_offset + (pre_wp * 2) + 1] = inR;
+
+		float combL = 0.0F;
+		float combR = 0.0F;
+
+		for (int ci = 0; ci < 4; ci++)
+		{
+			uint32_t wpl = r->wpos % r->comb_l_len[ci];
+			uint32_t wpr = r->wpos % r->comb_r_len[ci];
+
+			float delayedL = r->buffer[r->comb_l_offset[ci] + wpl];
+			float delayedR = r->buffer[r->comb_r_offset[ci] + wpr];
+
+			float dampedL =
+				r->damp_prev[0][ci] + (damp * (delayedL - r->damp_prev[0][ci]));
+			r->damp_prev[0][ci] = dampedL;
+			float dampedR =
+				r->damp_prev[1][ci] + (damp * (delayedR - r->damp_prev[1][ci]));
+			r->damp_prev[1][ci] = dampedR;
+
+			float fbL = decay * dampedL;
+			float fbR = decay * dampedR;
+
+			r->buffer[r->comb_l_offset[ci] + wpl] = preL + fbL;
+			r->buffer[r->comb_r_offset[ci] + wpr] = preR + fbR;
+
+			combL += delayedL * tap_gain;
+			combR += delayedR * tap_gain;
+		}
+
+		float mixedL = combL + (cross * combR);
+		float mixedR = combR + (cross * combL);
+
+		uint32_t ap0_len = r->ap_len[0];
+		uint32_t ap0_wp = r->wpos % ap0_len;
+		float ap0_readL = r->buffer[r->ap_l_offset[0] + ap0_wp];
+		r->buffer[r->ap_l_offset[0] + ap0_wp] = mixedL + (ap_a * ap0_readL);
+		float ap_outL = (-ap_a * mixedL) + ap0_readL;
+
+		float ap0_readR = r->buffer[r->ap_r_offset[0] + ap0_wp];
+		r->buffer[r->ap_r_offset[0] + ap0_wp] = mixedR + (ap_a * ap0_readR);
+		float ap_outR = (-ap_a * mixedR) + ap0_readR;
+
+		uint32_t ap1_len = r->ap_len[1];
+		uint32_t ap1_wp = r->wpos % ap1_len;
+		float ap1_readL = r->buffer[r->ap_l_offset[1] + ap1_wp];
+		r->buffer[r->ap_l_offset[1] + ap1_wp] = ap_outL + (ap_a * ap1_readL);
+		float tailL = (-ap_a * ap_outL) + ap1_readL;
+
+		float ap1_readR = r->buffer[r->ap_r_offset[1] + ap1_wp];
+		r->buffer[r->ap_r_offset[1] + ap1_wp] = ap_outR + (ap_a * ap1_readR);
+		float tailR = (-ap_a * ap_outR) + ap1_readR;
+
+		buf[sL] = (inL * mix_dry) + (tailL * mix_wet);
+		buf[sR] = (inR * mix_dry) + (tailR * mix_wet);
+
+		r->wpos++;
+	}
+}
+
 static void apply_custom_effect(float* buf, ma_uint32 frames, uint32_t channels,
 								uint32_t sampleRate, spel_audio_effect_custom_t* c)
 {
@@ -1182,6 +1408,94 @@ static void apply_accumulate(float* output, const float* scratch, ma_uint32 fram
 			output[(size_t)(f * 2)] += scratch[(size_t)(f * 2)] * l;
 			output[(size_t)(f * 2) + 1] += scratch[(size_t)(f * 2) + 1] * r;
 		}
+	}
+}
+
+static float db_to_linear(float db)
+{
+	return powf(10.0F, db * 0.05F);
+}
+
+static void apply_master_limiter(float* output, ma_uint32 frames, uint32_t channels,
+								 uint32_t sampleRate, float thresholdDb, float attackSec,
+								 float releaseSec, float peak[2])
+{
+	float thresh_lin = db_to_linear(thresholdDb);
+	float attack_a = expf(-1.0F / (attackSec * (float)sampleRate));
+	float release_a = expf(-1.0F / (releaseSec * (float)sampleRate));
+
+	for (ma_uint32 f = 0; f < frames; f++)
+	{
+		for (uint32_t ch = 0; ch < channels; ch++)
+		{
+			uint32_t s = (f * channels) + ch;
+			float level = fabsf(output[s]);
+			float env = peak[ch];
+
+			float a = (level > env) ? attack_a : release_a;
+			env = ((1.0F - a) * level) + (a * env);
+			peak[ch] = env;
+
+			if (env > thresh_lin && env > 1e-10F)
+			{
+				float gain = thresh_lin / env;
+				output[s] *= gain;
+			}
+		}
+	}
+}
+
+static void apply_master_compressor(float* output, ma_uint32 frames, uint32_t channels,
+									uint32_t sampleRate, float thresholdDb, float ratio,
+									float attackSec, float releaseSec, float env[2])
+{
+	float attack_a = expf(-1.0F / (attackSec * (float)sampleRate));
+	float release_a = expf(-1.0F / (releaseSec * (float)sampleRate));
+	float inv_ratio = 1.0F / ratio;
+
+	for (ma_uint32 f = 0; f < frames; f++)
+	{
+		for (uint32_t ch = 0; ch < channels; ch++)
+		{
+			uint32_t s = (f * channels) + ch;
+			float level = fabsf(output[s]);
+			float envelope = env[ch];
+
+			float a = (level > envelope) ? attack_a : release_a;
+			envelope = ((1.0F - a) * level) + (a * envelope);
+			env[ch] = envelope;
+
+			if (envelope > 1e-10F)
+			{
+				float db_env = 20.0F * log10f(envelope);
+				if (db_env > thresholdDb)
+				{
+					float db_reduction = (db_env - thresholdDb) * inv_ratio;
+					float target_db = db_env - db_reduction;
+					float gain_lin = powf(10.0F, target_db * 0.05F) / envelope;
+					output[s] *= gain_lin;
+				}
+			}
+		}
+	}
+}
+
+void spel_audio_master_process(spel_audio_mixer_t* mixer, float* output,
+							   ma_uint32 frameCount, uint32_t channels,
+							   uint32_t sampleRate)
+{
+	if (mixer->limiter_enabled)
+	{
+		apply_master_limiter(output, frameCount, channels, sampleRate,
+							 mixer->limiter_threshold, mixer->limiter_attack,
+							 mixer->limiter_release, mixer->limiter_peak);
+	}
+	if (mixer->compressor_enabled)
+	{
+		apply_master_compressor(output, frameCount, channels, sampleRate,
+								mixer->compressor_threshold, mixer->compressor_ratio,
+								mixer->compressor_attack, mixer->compressor_release,
+								mixer->compressor_env);
 	}
 }
 
@@ -1230,9 +1544,8 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 			}
 
 			ma_uint64 raw_read = 0;
-			ma_result result =
-				ma_decoder_read_pcm_frames(v->decoder, v->pitch_buf,
-										   raw_needed, &raw_read);
+			ma_result result = ma_decoder_read_pcm_frames(v->decoder, v->pitch_buf,
+														  raw_needed, &raw_read);
 
 			if (result != MA_SUCCESS || raw_read == 0)
 			{
@@ -1279,16 +1592,15 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 		apply_onepole_lpf(scratch, out_frames, channels, v->lpf);
 		apply_onepole_hpf(scratch, out_frames, channels, v->hpf);
 		apply_delay_effect(scratch, out_frames, channels, v->delay);
-		apply_flanger_effect(scratch, out_frames, channels, v->flanger,
-							 sampleRate);
-		apply_chorus_effect(scratch, out_frames, channels, v->chorus,
-							sampleRate);
+		apply_flanger_effect(scratch, out_frames, channels, v->flanger, sampleRate);
+		apply_chorus_effect(scratch, out_frames, channels, v->chorus, sampleRate);
 
-		apply_custom_effect(scratch, out_frames, channels, sampleRate,
-							v->custom);
+		apply_reverb_effect(scratch, out_frames, channels, v->reverb, sampleRate);
 
-		apply_accumulate(output, scratch, out_frames, channels, v->volume,
-						 v->pan_l, v->pan_r);
+		apply_custom_effect(scratch, out_frames, channels, sampleRate, v->custom);
+
+		apply_accumulate(output, scratch, out_frames, channels, v->volume, v->pan_l,
+						 v->pan_r);
 
 		if (pitch_raw_end || out_frames < frameCount)
 		{
@@ -1352,4 +1664,95 @@ spel_hidden void spel_audio_cleanup(void)
 			memset(v, 0, sizeof(*v));
 		}
 	}
+}
+
+spel_api void spel_audio_master_limiter_set(float thresholdDb, float attackMs,
+											float releaseMs)
+{
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+
+	if (thresholdDb <= -80.0F || attackMs <= 0.0F || releaseMs <= 0.0F)
+	{
+		spel_audio_cmd cmd;
+		cmd.type = SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE;
+		cmd.voice_index = -1;
+		cmd.bool_value = false;
+		spel_audio_cmd_push(&state->cmd_ring, &cmd);
+		return;
+	}
+
+	float attack_sec = attackMs * 0.001F;
+	float release_sec = releaseMs * 0.001F;
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS;
+	cmd.voice_index = -1;
+	cmd.floats[0] = thresholdDb;
+	cmd.floats[1] = attack_sec;
+	cmd.floats[2] = release_sec;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+
+	cmd.type = SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE;
+	cmd.bool_value = true;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
+											   float attackMs, float releaseMs)
+{
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+
+	if (thresholdDb <= -80.0F || ratio <= 1.0F || attackMs <= 0.0F || releaseMs <= 0.0F)
+	{
+		spel_audio_cmd cmd;
+		cmd.type = SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE;
+		cmd.voice_index = -1;
+		cmd.bool_value = false;
+		spel_audio_cmd_push(&state->cmd_ring, &cmd);
+		return;
+	}
+
+	float attack_sec = attackMs * 0.001F;
+	float release_sec = releaseMs * 0.001F;
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS;
+	cmd.voice_index = -1;
+	cmd.floats[0] = thresholdDb;
+	cmd.floats[1] = ratio;
+	cmd.floats[2] = attack_sec;
+	cmd.floats[3] = release_sec;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+
+	cmd.type = SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE;
+	cmd.bool_value = true;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api bool spel_audio_master_limiter_enabled(void)
+{
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return false;
+	}
+	return state->mixer.limiter_enabled;
+}
+
+spel_api bool spel_audio_master_compressor_enabled(void)
+{
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return false;
+	}
+	return state->mixer.compressor_enabled;
 }

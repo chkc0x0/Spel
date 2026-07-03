@@ -68,6 +68,43 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 
 	while (spel_audio_cmd_pop(ring, &cmd))
 	{
+		switch (cmd.type)
+		{
+		case SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS:
+			mixer->limiter_threshold = cmd.floats[0];
+			mixer->limiter_attack    = cmd.floats[1];
+			mixer->limiter_release   = cmd.floats[2];
+			continue;
+
+		case SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE:
+			mixer->limiter_enabled = cmd.bool_value;
+			if (!cmd.bool_value)
+			{
+				mixer->limiter_peak[0] = 0.0F;
+				mixer->limiter_peak[1] = 0.0F;
+			}
+			continue;
+
+		case SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS:
+			mixer->compressor_threshold = cmd.floats[0];
+			mixer->compressor_ratio     = cmd.floats[1];
+			mixer->compressor_attack    = cmd.floats[2];
+			mixer->compressor_release   = cmd.floats[3];
+			continue;
+
+		case SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE:
+			mixer->compressor_enabled = cmd.bool_value;
+			if (!cmd.bool_value)
+			{
+				mixer->compressor_env[0] = 0.0F;
+				mixer->compressor_env[1] = 0.0F;
+			}
+			continue;
+
+		default:
+			break;
+		}
+
 		int idx = voice_index_check(mixer, cmd.voice_index);
 		if (idx < 0)
 		{
@@ -185,6 +222,16 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 
 		case SPEL_AUDIO_CMD_PITCH_SET:
 			v->pitch = cmd.float_value;
+			break;
+
+		case SPEL_AUDIO_CMD_REVERB_PARAMS:
+			if (v->reverb)
+			{
+				v->reverb->decay     = cmd.floats[0];
+				v->reverb->damping   = cmd.floats[1];
+				v->reverb->pre_delay = cmd.floats[2];
+				v->reverb->mix       = cmd.floats[3];
+			}
 			break;
 
 		default:

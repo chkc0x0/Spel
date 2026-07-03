@@ -35,7 +35,11 @@ static bool fx_delay_on;
 static bool fx_flanger_on;
 static bool fx_chorus_on;
 
-/* Pitch presets — key 7 cycles through these */
+static bool fx_reverb_on;
+
+static bool fx_limiter_on;
+static bool fx_compressor_on;
+
 static const float pitch_presets[] = {1.0f, 0.5f, 0.75f, 1.25f, 1.5f, 2.0f};
 static const int pitch_preset_count = sizeof(pitch_presets) / sizeof(pitch_presets[0]);
 static int fx_pitch_idx;  /* index into pitch_presets */
@@ -124,10 +128,36 @@ void spel_update(double dt)
 									 fx_chorus_on ? 1.0f : 0.0f, 0.5f, 9);
 	}
 
+	if (spel_input_key_pressed(SPEL_KEY_7))
+	{
+		fx_reverb_on = !fx_reverb_on;
+		spel_audio_voice_reverb_set(bgm,
+									fx_reverb_on ? 0.84f : 0.0f,
+									fx_reverb_on ? 0.4f  : 0.0f,
+									fx_reverb_on ? 30.0f : 0.0f,
+									fx_reverb_on ? 0.5f  : 0.0f);
+	}
+
 	if (spel_input_key_pressed(SPEL_KEY_0))
 	{
 		fx_pitch_idx = (fx_pitch_idx + 1) % pitch_preset_count;
 		spel_audio_voice_pitch_set(bgm, pitch_presets[fx_pitch_idx]);
+	}
+
+	if (spel_input_key_pressed(SPEL_KEY_8))
+	{
+		fx_limiter_on = !fx_limiter_on;
+		spel_audio_master_limiter_set(fx_limiter_on ? -6.0f : -999.0f,
+									  fx_limiter_on ? 1.0f : 0.0f,
+									  fx_limiter_on ? 10.0f : 0.0f);
+	}
+	if (spel_input_key_pressed(SPEL_KEY_9))
+	{
+		fx_compressor_on = !fx_compressor_on;
+		spel_audio_master_compressor_set(fx_compressor_on ? -12.0f : -999.0f,
+										 fx_compressor_on ? 4.0f : 1.0f,
+										 fx_compressor_on ? 5.0f : 0.0f,
+										 fx_compressor_on ? 50.0f : 0.0f);
 	}
 
 	// 500 px/s basically
@@ -263,21 +293,22 @@ void spel_draw()
 	spel_canvas_font_size_set(256);
 	spel_canvas_draw_text("H8G!$", spel_vec2(100, 300));
 
-	//
-	// DSP effect HUD — bottom-left corner
-	//
 	spel_canvas_font_size_set(18);
 	spel_canvas_fill_color_set(spel_color_hexa(0x00000088));
-	spel_canvas_draw_rect(spel_rect(4, spel.window.height - 48, 540, 44));
+	spel_canvas_draw_rect(spel_rect(4, spel.window.height - 72, 820, 68));
 	spel_canvas_fill_color_set(spel_color_hexa(0xFFFFFFFF));
-	spel_canvas_print(spel_vec2(8, spel.window.height - 45),
+	spel_canvas_print(spel_vec2(8, spel.window.height - 69),
 					  "[1]dist:%-3s [2]lpf:%-3s [3]hpf:%-3s "
-					  "[4]dly:%-3s [5]flg:%-3s [6]cho:%-3s",
+					  "[4]dly:%-3s [5]flg:%-3s [6]cho:%-3s [7]rev:%-3s",
 					  fx_distortion_on ? "ON" : "off", fx_lpf_on ? "ON" : "off",
 					  fx_hpf_on ? "ON" : "off", fx_delay_on ? "ON" : "off",
-					  fx_flanger_on ? "ON" : "off", fx_chorus_on ? "ON" : "off");
-	spel_canvas_print(spel_vec2(8, spel.window.height - 21),
-					  "[7]pitch:%.2fx", pitch_presets[fx_pitch_idx]);
+					  fx_flanger_on ? "ON" : "off", fx_chorus_on ? "ON" : "off",
+					  fx_reverb_on ? "ON" : "off");
+	spel_canvas_print(spel_vec2(8, spel.window.height - 45),
+					  "[0]pitch:%.2fx  [8]lim:-%s  [9]cmp:-%s",
+					  pitch_presets[fx_pitch_idx],
+					  fx_limiter_on ? "ON " : "off",
+					  fx_compressor_on ? "ON " : "off");
 
 	spel_canvas_end();
 }

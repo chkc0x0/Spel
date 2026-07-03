@@ -29,6 +29,11 @@ typedef enum
 	SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR,
 	SPEL_AUDIO_CMD_CUSTOM_PARAM_SET,
 	SPEL_AUDIO_CMD_PITCH_SET,
+	SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS,
+	SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE,
+	SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS,
+	SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE,
+	SPEL_AUDIO_CMD_REVERB_PARAMS,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -97,6 +102,30 @@ typedef struct
 
 typedef struct
 {
+	float* buffer;
+	uint32_t cap;
+	uint32_t wpos;
+
+	float decay;
+	float damping;
+	float pre_delay;
+	float mix;
+
+	uint32_t pre_offset;
+	uint32_t pre_len;
+	uint32_t comb_l_offset[4];
+	uint32_t comb_l_len[4];
+	uint32_t comb_r_offset[4];
+	uint32_t comb_r_len[4];
+	uint32_t ap_l_offset[2];
+	uint32_t ap_r_offset[2];
+	uint32_t ap_len[2];
+
+	float damp_prev[2][4];
+} spel_audio_effect_reverb_t;
+
+typedef struct
+{
 	void (*callback)(float* samples, uint32_t frameCount, uint32_t channels,
 					 uint32_t sampleRate, spel_audio_custom_effect_ctx* ctx);
 	void* user_data;
@@ -123,6 +152,7 @@ struct spel_audio_voice_t
 	spel_audio_effect_delay_t* delay;
 	spel_audio_effect_flanger_t* flanger;
 	spel_audio_effect_chorus_t* chorus;
+	spel_audio_effect_reverb_t* reverb;
 	spel_audio_effect_custom_t* custom;
 	float pitch;
 	float* pitch_buf;
@@ -135,6 +165,18 @@ typedef struct
 {
 	spel_audio_voice_t voices[SPEL_AUDIO_MAX_VOICES];
 	atomic_uint frame_counter;
+	bool limiter_enabled;
+	float limiter_threshold;
+	float limiter_attack;
+	float limiter_release;
+	float limiter_peak[2];
+
+	bool compressor_enabled;
+	float compressor_threshold;
+	float compressor_ratio;
+	float compressor_attack;
+	float compressor_release;
+	float compressor_env[2];
 } spel_audio_mixer_t;
 
 struct spel_audio_t
@@ -166,6 +208,10 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							  ma_uint32 frameCount, uint32_t channels, float* scratch,
 							  uint32_t sampleRate);
+
+void spel_audio_master_process(spel_audio_mixer_t* mixer, float* output,
+							   ma_uint32 frameCount, uint32_t channels,
+							   uint32_t sampleRate);
 
 spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v);
 
