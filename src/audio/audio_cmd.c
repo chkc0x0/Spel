@@ -183,6 +183,10 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			}
 			break;
 
+		case SPEL_AUDIO_CMD_PITCH_SET:
+			v->pitch = cmd.float_value;
+			break;
+
 		default:
 			break;
 		}

@@ -28,6 +28,7 @@ typedef enum
 	SPEL_AUDIO_CMD_CHORUS_PARAMS,
 	SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR,
 	SPEL_AUDIO_CMD_CUSTOM_PARAM_SET,
+	SPEL_AUDIO_CMD_PITCH_SET,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -123,6 +124,9 @@ struct spel_audio_voice_t
 	spel_audio_effect_flanger_t* flanger;
 	spel_audio_effect_chorus_t* chorus;
 	spel_audio_effect_custom_t* custom;
+	float pitch;
+	float* pitch_buf;
+	uint32_t pitch_buf_cap;
 };
 
 typedef struct spel_audio_voice_t spel_audio_voice_t;

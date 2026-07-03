@@ -57,6 +57,9 @@ spel_api void
 spel_audio_voice_custom_param_set(spel_audio_voice voice,
 								   uint32_t index, float value);
 
+spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice,
+										  float pitch);
+
 spel_hidden void spel_audio_cleanup(void);
 
 #endif

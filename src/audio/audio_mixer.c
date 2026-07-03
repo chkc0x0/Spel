@@ -165,6 +165,13 @@ spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
 	v->chorus = NULL;
 	free_buffered_effect(v->custom);
 	v->custom = NULL;
+	if (v->pitch_buf)
+	{
+		spel_memory_free(v->pitch_buf);
+		v->pitch_buf = NULL;
+		v->pitch_buf_cap = 0;
+		v->pitch = 1.0F;
+	}
 }
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
@@ -296,6 +303,7 @@ spel_audio_voice_create_from_desc(const spel_audio_source_desc* desc)
 	}
 
 	v->volume = 1.0F;
+	v->pitch = 1.0F;
 	v->pan_l = 1.0F;
 	v->pan_r = 1.0F;
 
@@ -931,6 +939,64 @@ spel_api void spel_audio_voice_custom_param_set(spel_audio_voice voice, uint32_t
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 }
 
+spel_api void
+spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (pitch < 0.001F) { pitch = 0.001F;
+}
+	if (pitch > 10.0F) {   pitch = 10.0F;
+}
+
+	if (fabsf(pitch - 1.0F) <= 0.001F)
+	{
+		if (v->pitch_buf)
+		{
+			spel_memory_free(v->pitch_buf);
+			v->pitch_buf = NULL;
+		}
+		v->pitch_buf_cap = 0;
+		pitch = 1.0F;
+	}
+	else if (!v->pitch_buf)
+	{
+		uint32_t buf_sz = state->config.buffer_size;
+		if (buf_sz == 0) { buf_sz = 512;
+}
+		v->pitch_buf_cap = (uint32_t)(8.0F * (float)buf_sz) + 2;
+		size_t bytes = (size_t)v->pitch_buf_cap * state->channels * sizeof(float);
+		v->pitch_buf = (float*)spel_memory_malloc(bytes, SPEL_MEM_TAG_AUDIO);
+		if (!v->pitch_buf)
+		{
+			v->pitch_buf_cap = 0;
+			return;
+		}
+		memset(v->pitch_buf, 0, bytes);
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_PITCH_SET;
+	cmd.voice_index = idx;
+	cmd.float_value = pitch;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
 static void apply_distortion_effect(float* buf, ma_uint32 frames, uint32_t channels,
 									spel_audio_effect_distortion_t* d)
 {
@@ -1147,33 +1213,94 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 
 		memset(scratch, 0, (__ssize_t)(frameCount * channels) * sizeof(float));
 
-		ma_uint64 frames_read = 0;
-		ma_result result =
-			ma_decoder_read_pcm_frames(v->decoder, scratch, frameCount, &frames_read);
+		ma_uint32 out_frames = 0;
+		bool pitch_raw_end = false;
 
-		if (result != MA_SUCCESS || frames_read == 0)
+		if (v->pitch == 1.0F)
 		{
-			atomic_store_explicit(&v->playing, false, memory_order_release);
-			atomic_store_explicit(&v->done, true, memory_order_release);
+			ma_uint64 dec_read = 0;
+			ma_result result =
+				ma_decoder_read_pcm_frames(v->decoder, scratch, frameCount, &dec_read);
+
+			out_frames = (ma_uint32)dec_read;
+
+			if (result != MA_SUCCESS || dec_read == 0)
+			{
+				atomic_store_explicit(&v->playing, false, memory_order_release);
+				atomic_store_explicit(&v->done, true, memory_order_release);
+				continue;
+			}
+		}
+		else if (v->pitch_buf)
+		{
+			ma_uint32 raw_needed = (ma_uint32)(ceilf(v->pitch * (float)frameCount)) + 1;
+			if (raw_needed > v->pitch_buf_cap)
+			{
+				raw_needed = v->pitch_buf_cap;
+			}
+
+			ma_uint64 raw_read = 0;
+			ma_result result =
+				ma_decoder_read_pcm_frames(v->decoder, v->pitch_buf,
+										   raw_needed, &raw_read);
+
+			if (result != MA_SUCCESS || raw_read == 0)
+			{
+				atomic_store_explicit(&v->playing, false, memory_order_release);
+				atomic_store_explicit(&v->done, true, memory_order_release);
+				continue;
+			}
+
+			ma_uint32 safe = (ma_uint32)raw_read;
+			ma_uint32 max_i0 = (safe > 1) ? safe - 2 : 0;
+
+			for (ma_uint32 fi = 0; fi < frameCount; fi++)
+			{
+				float src_float = (float)fi * v->pitch;
+				ma_uint32 i0 = (ma_uint32)src_float;
+				float frac = src_float - (float)i0;
+
+				if (i0 > max_i0)
+				{
+					i0 = max_i0;
+					frac = 0.0F;
+				}
+
+				ma_uint32 i1 = i0 + 1;
+
+				for (ma_uint32 ch = 0; ch < channels; ch++)
+				{
+					ma_uint32 si = (fi * channels) + ch;
+					float a = v->pitch_buf[(i0 * channels) + ch];
+					float b = v->pitch_buf[(i1 * channels) + ch];
+					scratch[si] = a + (frac * (b - a));
+				}
+			}
+
+			out_frames = frameCount;
+			pitch_raw_end = (raw_read < (ma_uint64)raw_needed);
+		}
+		else
+		{
 			continue;
 		}
 
-		apply_distortion_effect(scratch, (ma_uint32)frames_read, channels, v->distortion);
-		apply_onepole_lpf(scratch, (ma_uint32)frames_read, channels, v->lpf);
-		apply_onepole_hpf(scratch, (ma_uint32)frames_read, channels, v->hpf);
-		apply_delay_effect(scratch, (ma_uint32)frames_read, channels, v->delay);
-		apply_flanger_effect(scratch, (ma_uint32)frames_read, channels, v->flanger,
+		apply_distortion_effect(scratch, out_frames, channels, v->distortion);
+		apply_onepole_lpf(scratch, out_frames, channels, v->lpf);
+		apply_onepole_hpf(scratch, out_frames, channels, v->hpf);
+		apply_delay_effect(scratch, out_frames, channels, v->delay);
+		apply_flanger_effect(scratch, out_frames, channels, v->flanger,
 							 sampleRate);
-		apply_chorus_effect(scratch, (ma_uint32)frames_read, channels, v->chorus,
+		apply_chorus_effect(scratch, out_frames, channels, v->chorus,
 							sampleRate);
 
-		apply_custom_effect(scratch, (ma_uint32)frames_read, channels, sampleRate,
+		apply_custom_effect(scratch, out_frames, channels, sampleRate,
 							v->custom);
 
-		apply_accumulate(output, scratch, (ma_uint32)frames_read, channels, v->volume,
+		apply_accumulate(output, scratch, out_frames, channels, v->volume,
 						 v->pan_l, v->pan_r);
 
-		if (frames_read < frameCount)
+		if (pitch_raw_end || out_frames < frameCount)
 		{
 			if (atomic_load_explicit(&v->looping, memory_order_relaxed))
 			{
