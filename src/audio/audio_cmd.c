@@ -165,6 +165,24 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			}
 			break;
 
+		case SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR:
+			if (v->custom)
+			{
+				v->custom->callback = NULL;
+			}
+			break;
+
+		case SPEL_AUDIO_CMD_CUSTOM_PARAM_SET:
+			if (v->custom)
+			{
+				unsigned int pi = (unsigned int)cmd.floats[0];
+				if (pi < 4)
+				{
+					v->custom->params[pi] = cmd.floats[1];
+				}
+			}
+			break;
+
 		default:
 			break;
 		}

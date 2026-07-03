@@ -163,6 +163,8 @@ spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
 	v->flanger = NULL;
 	free_buffered_effect(v->chorus);
 	v->chorus = NULL;
+	free_buffered_effect(v->custom);
+	v->custom = NULL;
 }
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source)
@@ -859,6 +861,76 @@ spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 }
 
+spel_api void spel_audio_voice_custom_effect_set(spel_audio_voice voice,
+												 spel_audio_effect_fn callback,
+												 void* userData)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	if (!callback)
+	{
+		spel_audio_cmd cmd;
+		cmd.type = SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR;
+		cmd.voice_index = idx;
+		spel_audio_cmd_push(&state->cmd_ring, &cmd);
+		return;
+	}
+
+	if (!ensure_allocated((void**)&v->custom, sizeof(spel_audio_effect_custom_t)))
+	{
+		return;
+	}
+
+	v->custom->callback = callback;
+	v->custom->user_data = userData;
+}
+
+spel_api void spel_audio_voice_custom_param_set(spel_audio_voice voice, uint32_t index,
+												float value)
+{
+	if (!voice)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	if (index >= 4)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_CUSTOM_PARAM_SET;
+	cmd.voice_index = idx;
+	cmd.floats[0] = (float)index;
+	cmd.floats[1] = value;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
 static void apply_distortion_effect(float* buf, ma_uint32 frames, uint32_t channels,
 									spel_audio_effect_distortion_t* d)
 {
@@ -1022,6 +1094,19 @@ static void apply_chorus_effect(float* buf, ma_uint32 frames, uint32_t channels,
 	}
 }
 
+static void apply_custom_effect(float* buf, ma_uint32 frames, uint32_t channels,
+								uint32_t sampleRate, spel_audio_effect_custom_t* c)
+{
+	if (c && c->callback)
+	{
+		spel_audio_custom_effect_ctx ctx;
+		ctx.params = c->params;
+		ctx.num_params = SPEL_AUDIO_CUSTOM_PARAM_COUNT;
+		ctx.user_data = c->user_data;
+		c->callback(buf, frames, channels, sampleRate, &ctx);
+	}
+}
+
 static void apply_accumulate(float* output, const float* scratch, ma_uint32 frames,
 							 uint32_t channels, float vol, float panL, float panR)
 {
@@ -1081,6 +1166,9 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							 sampleRate);
 		apply_chorus_effect(scratch, (ma_uint32)frames_read, channels, v->chorus,
 							sampleRate);
+
+		apply_custom_effect(scratch, (ma_uint32)frames_read, channels, sampleRate,
+							v->custom);
 
 		apply_accumulate(output, scratch, (ma_uint32)frames_read, channels, v->volume,
 						 v->pan_l, v->pan_r);

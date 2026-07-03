@@ -36,6 +36,27 @@ spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
 spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
 										  float depthMs, float mix, int voices);
 
+#define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
+
+typedef struct
+{
+	const float* params;
+	uint32_t    num_params;
+	void*       user_data;
+} spel_audio_custom_effect_ctx;
+
+typedef void (*spel_audio_effect_fn)(float* samples, uint32_t frameCount,
+									  uint32_t channels, uint32_t sampleRate,
+									  spel_audio_custom_effect_ctx* ctx);
+spel_api void
+spel_audio_voice_custom_effect_set(spel_audio_voice voice,
+									spel_audio_effect_fn callback,
+									void* userData);
+
+spel_api void
+spel_audio_voice_custom_param_set(spel_audio_voice voice,
+								   uint32_t index, float value);
+
 spel_hidden void spel_audio_cleanup(void);
 
 #endif

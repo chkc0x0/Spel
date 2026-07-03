@@ -1,5 +1,6 @@
 #ifndef SPEL_AUDIO_INTERNAL
 #define SPEL_AUDIO_INTERNAL
+#include "audio/audio_mixer.h"
 #include "audio/audio_types.h"
 #include "utils/internal/miniaudio.h"
 #include <stdatomic.h>
@@ -25,6 +26,8 @@ typedef enum
 	SPEL_AUDIO_CMD_DELAY_PARAMS,
 	SPEL_AUDIO_CMD_FLANGER_PARAMS,
 	SPEL_AUDIO_CMD_CHORUS_PARAMS,
+	SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR,
+	SPEL_AUDIO_CMD_CUSTOM_PARAM_SET,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -91,6 +94,14 @@ typedef struct
 	int voices;
 } spel_audio_effect_chorus_t;
 
+typedef struct
+{
+	void (*callback)(float* samples, uint32_t frameCount, uint32_t channels,
+					 uint32_t sampleRate, spel_audio_custom_effect_ctx* ctx);
+	void* user_data;
+	float params[4];
+} spel_audio_effect_custom_t;
+
 struct spel_audio_voice_t
 {
 	ma_decoder* decoder;
@@ -111,6 +122,7 @@ struct spel_audio_voice_t
 	spel_audio_effect_delay_t* delay;
 	spel_audio_effect_flanger_t* flanger;
 	spel_audio_effect_chorus_t* chorus;
+	spel_audio_effect_custom_t* custom;
 };
 
 typedef struct spel_audio_voice_t spel_audio_voice_t;
