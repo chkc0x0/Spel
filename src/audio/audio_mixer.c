@@ -165,8 +165,20 @@ spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
 	v->chorus = NULL;
 	free_buffered_effect(v->reverb);
 	v->reverb = NULL;
-	free_buffered_effect(v->custom);
-	v->custom = NULL;
+
+	if (v->effect_chain_to_free)
+	{
+		spel_memory_free(v->effect_chain_to_free);
+		v->effect_chain_to_free = NULL;
+	}
+	spel_audio_effect_array_t* _chain =
+		atomic_load_explicit(&v->effect_chain, memory_order_relaxed);
+	if (_chain)
+	{
+		spel_memory_free(_chain);
+		atomic_store_explicit(&v->effect_chain, NULL, memory_order_release);
+	}
+
 	if (v->pitch_buf)
 	{
 		spel_memory_free(v->pitch_buf);
@@ -871,76 +883,6 @@ spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 }
 
-spel_api void spel_audio_voice_custom_effect_set(spel_audio_voice voice,
-												 spel_audio_effect_fn callback,
-												 void* userData)
-{
-	if (!voice)
-	{
-		return;
-	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
-	if (!state)
-	{
-		return;
-	}
-	int idx = voice_index(state, voice);
-	if (idx < 0)
-	{
-		return;
-	}
-
-	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
-
-	if (!callback)
-	{
-		spel_audio_cmd cmd;
-		cmd.type = SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR;
-		cmd.voice_index = idx;
-		spel_audio_cmd_push(&state->cmd_ring, &cmd);
-		return;
-	}
-
-	if (!ensure_allocated((void**)&v->custom, sizeof(spel_audio_effect_custom_t)))
-	{
-		return;
-	}
-
-	v->custom->callback = callback;
-	v->custom->user_data = userData;
-}
-
-spel_api void spel_audio_voice_custom_param_set(spel_audio_voice voice, uint32_t index,
-												float value)
-{
-	if (!voice)
-	{
-		return;
-	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
-	if (!state)
-	{
-		return;
-	}
-	int idx = voice_index(state, voice);
-	if (idx < 0)
-	{
-		return;
-	}
-
-	if (index >= 4)
-	{
-		return;
-	}
-
-	spel_audio_cmd cmd;
-	cmd.type = SPEL_AUDIO_CMD_CUSTOM_PARAM_SET;
-	cmd.voice_index = idx;
-	cmd.floats[0] = (float)index;
-	cmd.floats[1] = value;
-	spel_audio_cmd_push(&state->cmd_ring, &cmd);
-}
-
 spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 {
 	if (!voice)
@@ -1376,16 +1318,24 @@ static void apply_reverb_effect(float* buf, ma_uint32 frames, uint32_t channels,
 	}
 }
 
-static void apply_custom_effect(float* buf, ma_uint32 frames, uint32_t channels,
-								uint32_t sampleRate, spel_audio_effect_custom_t* c)
+static void apply_effect_chain(float* buf, ma_uint32 frames, uint32_t channels,
+							   uint32_t sampleRate, spel_audio_effect_array_t* chain)
 {
-	if (c && c->callback)
+	if (!chain)
 	{
-		spel_audio_custom_effect_ctx ctx;
-		ctx.params = c->params;
-		ctx.num_params = SPEL_AUDIO_CUSTOM_PARAM_COUNT;
-		ctx.user_data = c->user_data;
-		c->callback(buf, frames, channels, sampleRate, &ctx);
+		return;
+	}
+	for (uint32_t i = 0; i < chain->count; i++)
+	{
+		spel_audio_effect_slot_t* s = &chain->slots[i];
+		if (s->callback)
+		{
+			spel_audio_custom_effect_ctx ctx;
+			ctx.params = s->params;
+			ctx.num_params = SPEL_AUDIO_CUSTOM_PARAM_COUNT;
+			ctx.user_data = s->user_data;
+			s->callback(buf, frames, channels, sampleRate, &ctx);
+		}
 	}
 }
 
@@ -1597,7 +1547,11 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 
 		apply_reverb_effect(scratch, out_frames, channels, v->reverb, sampleRate);
 
-		apply_custom_effect(scratch, out_frames, channels, sampleRate, v->custom);
+		{
+			spel_audio_effect_array_t* _chain =
+				atomic_load_explicit(&v->effect_chain, memory_order_acquire);
+			apply_effect_chain(scratch, out_frames, channels, sampleRate, _chain);
+		}
 
 		apply_accumulate(output, scratch, out_frames, channels, v->volume, v->pan_l,
 						 v->pan_r);
@@ -1628,6 +1582,12 @@ spel_hidden void spel_audio_cleanup(void)
 	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
 	{
 		spel_audio_voice_t* v = &state->mixer.voices[i];
+
+		if (v->effect_chain_to_free)
+		{
+			spel_memory_free(v->effect_chain_to_free);
+			v->effect_chain_to_free = NULL;
+		}
 
 		if (v->fire_forget && atomic_load_explicit(&v->done, memory_order_acquire))
 		{
@@ -1755,4 +1715,169 @@ spel_api bool spel_audio_master_compressor_enabled(void)
 		return false;
 	}
 	return state->mixer.compressor_enabled;
+}
+
+spel_api int spel_audio_voice_effect_add(spel_audio_voice voice,
+										 spel_audio_effect_fn callback, void* userData)
+{
+	if (!voice || !callback)
+	{
+		return -1;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return -1;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return -1;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	spel_audio_effect_array_t* old =
+		atomic_load_explicit(&v->effect_chain, memory_order_relaxed);
+	uint32_t old_count = old ? old->count : 0;
+	uint32_t new_count = old_count + 1;
+
+	spel_audio_effect_array_t* new_arr = (spel_audio_effect_array_t*)spel_memory_malloc(
+		sizeof(spel_audio_effect_array_t) +
+			((size_t)new_count * sizeof(spel_audio_effect_slot_t)),
+		SPEL_MEM_TAG_AUDIO);
+	if (!new_arr)
+	{
+		return -1;
+	}
+
+	new_arr->count = new_count;
+	if (old && old_count > 0)
+	{
+		memcpy(new_arr->slots, old->slots,
+			   (size_t)old_count * sizeof(spel_audio_effect_slot_t));
+	}
+	new_arr->slots[old_count].callback = callback;
+	new_arr->slots[old_count].user_data = userData;
+	memset(new_arr->slots[old_count].params, 0, sizeof(new_arr->slots[old_count].params));
+
+	atomic_store_explicit(&v->effect_chain, new_arr, memory_order_release);
+	int slot = (int)old_count;
+
+	if (v->effect_chain_to_free)
+	{
+		spel_memory_free(v->effect_chain_to_free);
+	}
+	v->effect_chain_to_free = old;
+
+	return slot;
+}
+
+spel_api void spel_audio_voice_effect_remove(spel_audio_voice voice, int slot)
+{
+	if (!voice || slot < 0)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
+
+	spel_audio_effect_array_t* old =
+		atomic_load_explicit(&v->effect_chain, memory_order_relaxed);
+	if (!old || (uint32_t)slot >= old->count)
+	{
+		return;
+	}
+
+	uint32_t new_count = old->count - 1;
+
+	if (new_count == 0)
+	{
+		atomic_store_explicit(&v->effect_chain, NULL, memory_order_release);
+
+		if (v->effect_chain_to_free)
+		{
+			spel_memory_free(v->effect_chain_to_free);
+		}
+		v->effect_chain_to_free = old;
+		return;
+	}
+
+	spel_audio_effect_array_t* new_arr = (spel_audio_effect_array_t*)spel_memory_malloc(
+		sizeof(spel_audio_effect_array_t) +
+			((size_t)new_count * sizeof(spel_audio_effect_slot_t)),
+		SPEL_MEM_TAG_AUDIO);
+	if (!new_arr)
+	{
+		return;
+	}
+
+	new_arr->count = new_count;
+
+	if (slot > 0)
+	{
+		memcpy(new_arr->slots, old->slots,
+			   (size_t)slot * sizeof(spel_audio_effect_slot_t));
+	}
+
+	if ((uint32_t)(slot + 1) < old->count)
+	{
+		memcpy(&new_arr->slots[slot], &old->slots[slot + 1],
+			   (size_t)(old->count - (uint32_t)slot - 1) *
+				   sizeof(spel_audio_effect_slot_t));
+	}
+
+	atomic_store_explicit(&v->effect_chain, new_arr, memory_order_release);
+
+	if (v->effect_chain_to_free)
+	{
+		spel_memory_free(v->effect_chain_to_free);
+	}
+	v->effect_chain_to_free = old;
+}
+
+spel_api void spel_audio_voice_effect_param_set(spel_audio_voice voice, int slot,
+												uint32_t paramIndex, float value)
+{
+	if (!voice || slot < 0)
+	{
+		return;
+	}
+	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	if (!state)
+	{
+		return;
+	}
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	if (paramIndex >= SPEL_AUDIO_CUSTOM_PARAM_COUNT)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_EFFECT_PARAM_SET;
+	cmd.voice_index = idx;
+	cmd.floats[0] = (float)slot;
+	cmd.floats[1] = (float)paramIndex;
+	cmd.floats[2] = value;
+
+	if (!spel_audio_cmd_push(&state->cmd_ring, &cmd))
+	{
+		spel_warn("audio cmd ring full, dropping effect param set for voice %d", idx);
+	}
 }

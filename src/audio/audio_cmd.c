@@ -202,23 +202,21 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			}
 			break;
 
-		case SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR:
-			if (v->custom)
+		case SPEL_AUDIO_CMD_EFFECT_PARAM_SET:
+		{
+			spel_audio_effect_array_t* _chain =
+				atomic_load_explicit(&v->effect_chain, memory_order_acquire);
+			if (_chain)
 			{
-				v->custom->callback = NULL;
-			}
-			break;
-
-		case SPEL_AUDIO_CMD_CUSTOM_PARAM_SET:
-			if (v->custom)
-			{
-				unsigned int pi = (unsigned int)cmd.floats[0];
-				if (pi < 4)
+				unsigned int si = (unsigned int)cmd.floats[0];
+				unsigned int pi = (unsigned int)cmd.floats[1];
+				if (si < _chain->count && pi < SPEL_AUDIO_CUSTOM_PARAM_COUNT)
 				{
-					v->custom->params[pi] = cmd.floats[1];
+					_chain->slots[si].params[pi] = cmd.floats[2];
 				}
 			}
 			break;
+		}
 
 		case SPEL_AUDIO_CMD_PITCH_SET:
 			v->pitch = cmd.float_value;

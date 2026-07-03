@@ -9,6 +9,7 @@
 #define SPEL_AUDIO_MAX_VOICES 48
 #define SPEL_AUDIO_CMD_RING_SIZE 64 /* pot */
 #define SPEL_AUDIO_CMD_RING_MASK (SPEL_AUDIO_CMD_RING_SIZE - 1)
+#define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
 
 typedef enum
 {
@@ -26,8 +27,7 @@ typedef enum
 	SPEL_AUDIO_CMD_DELAY_PARAMS,
 	SPEL_AUDIO_CMD_FLANGER_PARAMS,
 	SPEL_AUDIO_CMD_CHORUS_PARAMS,
-	SPEL_AUDIO_CMD_CUSTOM_EFFECT_CLEAR,
-	SPEL_AUDIO_CMD_CUSTOM_PARAM_SET,
+	SPEL_AUDIO_CMD_EFFECT_PARAM_SET,
 	SPEL_AUDIO_CMD_PITCH_SET,
 	SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS,
 	SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE,
@@ -126,11 +126,16 @@ typedef struct
 
 typedef struct
 {
-	void (*callback)(float* samples, uint32_t frameCount, uint32_t channels,
-					 uint32_t sampleRate, spel_audio_custom_effect_ctx* ctx);
+	spel_audio_effect_fn callback;
 	void* user_data;
-	float params[4];
-} spel_audio_effect_custom_t;
+	float params[SPEL_AUDIO_CUSTOM_PARAM_COUNT];
+} spel_audio_effect_slot_t;
+
+typedef struct
+{
+	uint32_t count;
+	spel_audio_effect_slot_t slots[];
+} spel_audio_effect_array_t;
 
 struct spel_audio_voice_t
 {
@@ -153,7 +158,8 @@ struct spel_audio_voice_t
 	spel_audio_effect_flanger_t* flanger;
 	spel_audio_effect_chorus_t* chorus;
 	spel_audio_effect_reverb_t* reverb;
-	spel_audio_effect_custom_t* custom;
+	_Atomic(spel_audio_effect_array_t*) effect_chain;
+	spel_audio_effect_array_t* effect_chain_to_free;
 	float pitch;
 	float* pitch_buf;
 	uint32_t pitch_buf_cap;

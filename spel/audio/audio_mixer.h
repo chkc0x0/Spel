@@ -34,35 +34,32 @@ spel_api void spel_audio_voice_delay_set(spel_audio_voice voice, float delayMs,
 spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
 										   float depthMs, float mix);
 spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
-									  float depthMs, float mix, int voices);
+										  float depthMs, float mix, int voices);
 
-spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice,
-										float decay, float damping,
-										float preDelayMs, float mix);
+spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice, float decay,
+										  float damping, float preDelayMs, float mix);
 
 #define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
 
 typedef struct
 {
 	const float* params;
-	uint32_t    num_params;
-	void*       user_data;
+	uint32_t num_params;
+	void* user_data;
 } spel_audio_custom_effect_ctx;
 
 typedef void (*spel_audio_effect_fn)(float* samples, uint32_t frameCount,
-									  uint32_t channels, uint32_t sampleRate,
-									  spel_audio_custom_effect_ctx* ctx);
-spel_api void
-spel_audio_voice_custom_effect_set(spel_audio_voice voice,
-									spel_audio_effect_fn callback,
-									void* userData);
+									 uint32_t channels, uint32_t sampleRate,
+									 spel_audio_custom_effect_ctx* ctx);
+spel_api int spel_audio_voice_effect_add(spel_audio_voice voice,
+										 spel_audio_effect_fn callback, void* userData);
 
-spel_api void
-spel_audio_voice_custom_param_set(spel_audio_voice voice,
-								   uint32_t index, float value);
+spel_api void spel_audio_voice_effect_remove(spel_audio_voice voice, int slot);
 
-spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice,
-									  float pitch);
+spel_api void spel_audio_voice_effect_param_set(spel_audio_voice voice, int slot,
+												uint32_t paramIndex, float value);
+
+spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch);
 
 spel_api void spel_audio_master_limiter_set(float thresholdDb, float attackMs,
 											float releaseMs);
