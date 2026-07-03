@@ -124,7 +124,7 @@ void spel_update(double dt)
 									 fx_chorus_on ? 1.0f : 0.0f, 0.5f, 9);
 	}
 
-	if (spel_input_key_pressed(SPEL_KEY_7))
+	if (spel_input_key_pressed(SPEL_KEY_0))
 	{
 		fx_pitch_idx = (fx_pitch_idx + 1) % pitch_preset_count;
 		spel_audio_voice_pitch_set(bgm, pitch_presets[fx_pitch_idx]);
@@ -269,6 +269,7 @@ void spel_draw()
 	spel_canvas_font_size_set(18);
 	spel_canvas_fill_color_set(spel_color_hexa(0x00000088));
 	spel_canvas_draw_rect(spel_rect(4, spel.window.height - 48, 540, 44));
+	spel_canvas_fill_color_set(spel_color_hexa(0xFFFFFFFF));
 	spel_canvas_print(spel_vec2(8, spel.window.height - 45),
 					  "[1]dist:%-3s [2]lpf:%-3s [3]hpf:%-3s "
 					  "[4]dly:%-3s [5]flg:%-3s [6]cho:%-3s",

@@ -964,17 +964,7 @@ spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 	if (pitch > 10.0F) {   pitch = 10.0F;
 }
 
-	if (fabsf(pitch - 1.0F) <= 0.001F)
-	{
-		if (v->pitch_buf)
-		{
-			spel_memory_free(v->pitch_buf);
-			v->pitch_buf = NULL;
-		}
-		v->pitch_buf_cap = 0;
-		pitch = 1.0F;
-	}
-	else if (!v->pitch_buf)
+	if (pitch != 1.0F && !v->pitch_buf)
 	{
 		uint32_t buf_sz = state->config.buffer_size;
 		if (buf_sz == 0) { buf_sz = 512;
