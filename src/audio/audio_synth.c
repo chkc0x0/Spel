@@ -512,3 +512,262 @@ spel_api float spel_audio_synth_frequency_get(spel_audio_synth sv)
 	}
 	return ((spel_synth_t*)sv)->frequency;
 }
+
+static const char* SEMITONE_LETTERS = "CDEFGAB";
+static const int8_t SEMITONE_VALUES[7] = {0, 2, 4, 5, 7, 9, 11};
+
+static int8_t letter_to_semitone(char c)
+{
+	if (c >= 'a' && c <= 'g')
+	{
+		c -= 32;
+	}
+	if (c >= 'A' && c <= 'G')
+	{
+		for (int i = 0; i < 7; i++)
+		{
+			if (c == SEMITONE_LETTERS[i])
+			{
+				return SEMITONE_VALUES[i];
+			}
+		}
+	}
+	return -1;
+}
+
+spel_api float spel_audio_synth_note_freq(const char* name)
+{
+	if (!name || !*name)
+	{
+		return 0.0F;
+	}
+
+	int8_t semitone = letter_to_semitone(name[0]);
+	if (semitone < 0)
+	{
+		return 0.0F;
+	}
+	size_t pos = 1;
+
+	if (name[pos] == '#')
+	{
+		semitone++;
+		pos++;
+	}
+	else if (name[pos] == 'b')
+	{
+		semitone--;
+		pos++;
+	}
+
+	if (semitone < 0)
+	{
+		semitone += 12;
+	}
+	else if (semitone > 11)
+	{
+		semitone -= 12;
+	}
+
+	int octave = 4;
+	if (name[pos] >= '0' && name[pos] <= '9')
+	{
+		octave = name[pos] - '0';
+		pos++;
+	}
+
+	int midi = ((octave + 1) * 12) + (int)semitone;
+	if (midi < 0 || midi > 127)
+	{
+		return 0.0F;
+	}
+
+	return 440.0F * powf(2.0F, (float)(midi - 69) * (1.0F / 12.0F));
+}
+
+typedef struct spel_audio_synth_player_t
+{
+	spel_audio_synth synth;
+	const spel_audio_synth_sheet* sheet;
+
+	bool playing;
+	bool done;
+	double elapsed_beats;
+
+	uint32_t next_event;
+	int32_t active_event;
+
+	float bpm;
+} spel_synth_player_t;
+
+spel_api spel_audio_synth_player spel_audio_synth_player_create(
+	spel_audio_synth synth, const spel_audio_synth_sheet* sheet)
+{
+	if (!synth || !sheet)
+	{
+		return NULL;
+	}
+
+	spel_synth_player_t* p = (spel_synth_player_t*)spel_memory_malloc(
+		sizeof(spel_synth_player_t), SPEL_MEM_TAG_AUDIO);
+	if (!p)
+	{
+		return NULL;
+	}
+
+	memset(p, 0, sizeof(*p));
+	p->synth = synth;
+	p->sheet = sheet;
+	p->bpm = sheet->bpm;
+	p->active_event = -1;
+
+	return (spel_audio_synth_player)p;
+}
+
+spel_api void spel_audio_synth_player_destroy(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return;
+	}
+	spel_synth_player_t* p = (spel_synth_player_t*)player;
+	spel_audio_synth_note_off(p->synth);
+	spel_memory_free(p);
+}
+
+spel_api void spel_audio_synth_player_play(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return;
+	}
+	spel_synth_player_t* p = (spel_synth_player_t*)player;
+	p->elapsed_beats = 0.0;
+	p->next_event = 0;
+	p->active_event = -1;
+	p->playing = true;
+	p->done = false;
+	spel_audio_synth_note_off(p->synth);
+}
+
+spel_api void spel_audio_synth_player_stop(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return;
+	}
+	spel_synth_player_t* p = (spel_synth_player_t*)player;
+	p->playing = false;
+	p->done = true;
+	spel_audio_synth_note_off(p->synth);
+}
+
+spel_api void spel_audio_synth_player_update(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return;
+	}
+	spel_synth_player_t* p = (spel_synth_player_t*)player;
+	if (!p->playing || p->done)
+	{
+		return;
+	}
+
+	p->elapsed_beats += spel.time.delta_unscaled * (double)(p->bpm / 60.0F);
+
+	const spel_audio_synth_sheet* sh = p->sheet;
+	uint32_t count = sh->num_events;
+	float eb = (float)p->elapsed_beats;
+
+	while (p->next_event < count)
+	{
+		const spel_audio_synth_event* ev = &sh->events[p->next_event];
+		if (ev->beat > eb)
+		{
+			break;
+		}
+
+		float freq = 440.0F * powf(2.0F, (float)(ev->midi_note - 69) * (1.0F / 12.0F));
+
+		float dur = ev->duration;
+		if (dur <= 0.0F)
+		{
+			dur = 0.05F;
+		}
+
+		spel_audio_synth_note(p->synth, freq, ev->velocity, dur);
+
+		p->active_event = (int32_t)p->next_event;
+		p->next_event++;
+	}
+
+	if (p->next_event >= count && p->active_event < 0)
+	{
+		p->done = true;
+		p->playing = false;
+	}
+}
+
+spel_api bool spel_audio_synth_player_done(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return true;
+	}
+	return ((spel_synth_player_t*)player)->done;
+}
+
+spel_api void spel_audio_synth_player_seek(spel_audio_synth_player player, float beat)
+{
+	if (!player)
+	{
+		return;
+	}
+	spel_synth_player_t* p = (spel_synth_player_t*)player;
+
+	p->elapsed_beats = (double)beat;
+	p->playing = false;
+	p->done = false;
+	spel_audio_synth_note_off(p->synth);
+
+	p->next_event = 0;
+	p->active_event = -1;
+	const spel_audio_synth_sheet* sh = p->sheet;
+	for (uint32_t i = 0; i < sh->num_events; i++)
+	{
+		if (sh->events[i].beat >= beat)
+		{
+			p->next_event = i;
+			break;
+		}
+	}
+}
+
+spel_api float spel_audio_synth_player_position_get(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return 0.0F;
+	}
+	return (float)((spel_synth_player_t*)player)->elapsed_beats;
+}
+
+spel_api uint32_t spel_audio_synth_player_event_count(spel_audio_synth_player player)
+{
+	if (!player)
+	{
+		return 0;
+	}
+	spel_synth_player_t* p = (spel_synth_player_t*)player;
+	return p->sheet ? p->sheet->num_events : 0;
+}
+
+spel_api void spel_audio_synth_player_bpm_set(spel_audio_synth_player player, float bpm)
+{
+	if (!player || bpm < 1.0F)
+	{
+		return;
+	}
+	((spel_synth_player_t*)player)->bpm = bpm;
+}

@@ -37,7 +37,7 @@ spel_audio_synth_voice_get(spel_audio_synth sv);
 
 spel_api void
 spel_audio_synth_note_on(spel_audio_synth sv,
-							   float frequency, float velocity);
+						 float frequency, float velocity);
 
 spel_api void
 spel_audio_synth_note_off(spel_audio_synth sv);
@@ -47,22 +47,21 @@ spel_audio_synth_note_active(spel_audio_synth sv);
 
 spel_api void
 spel_audio_synth_note(spel_audio_synth sv,
-							float frequency, float velocity,
-							float duration);
+					  float frequency, float velocity,
+					  float duration);
 
 spel_api void
 spel_audio_synth_envelope_set(spel_audio_synth sv,
-									const spel_audio_synth_envelope* env);
+							  const spel_audio_synth_envelope* env);
 
 spel_api const spel_audio_synth_envelope*
 spel_audio_synth_envelope_get(spel_audio_synth sv);
 
-spel_api void
-spel_audio_synth_envelope_default(spel_audio_synth sv);
+spel_api void spel_audio_synth_envelope_default(spel_audio_synth sv);
 
 spel_api void
 spel_audio_synth_param_set(spel_audio_synth sv,
-								 uint32_t index, float value);
+						   uint32_t index, float value);
 
 spel_api float
 spel_audio_synth_param_get(spel_audio_synth sv, uint32_t index);
@@ -82,5 +81,56 @@ spel_audio_synth_detune_get(spel_audio_synth sv);
 
 spel_api float
 spel_audio_synth_frequency_get(spel_audio_synth sv);
+
+spel_api float
+spel_audio_synth_note_freq(const char* name);
+
+typedef struct
+{
+	float   beat;
+	float   duration;
+	uint8_t midi_note;
+	float   velocity;
+} spel_audio_synth_event;
+
+typedef struct
+{
+	float   bpm;
+	uint32_t num_events;
+	const spel_audio_synth_event* events;
+} spel_audio_synth_sheet;
+
+typedef struct spel_audio_synth_player_t* spel_audio_synth_player;
+
+spel_api spel_audio_synth_player
+spel_audio_synth_player_create(spel_audio_synth synth,
+							   const spel_audio_synth_sheet* sheet);
+
+spel_api void
+spel_audio_synth_player_destroy(spel_audio_synth_player player);
+
+spel_api void
+spel_audio_synth_player_play(spel_audio_synth_player player);
+
+spel_api void
+spel_audio_synth_player_stop(spel_audio_synth_player player);
+
+spel_api void
+spel_audio_synth_player_update(spel_audio_synth_player player);
+
+spel_api bool
+spel_audio_synth_player_done(spel_audio_synth_player player);
+
+spel_api void
+spel_audio_synth_player_seek(spel_audio_synth_player player, float beat);
+
+spel_api float
+spel_audio_synth_player_position_get(spel_audio_synth_player player);
+
+spel_api uint32_t
+spel_audio_synth_player_event_count(spel_audio_synth_player player);
+
+spel_api void
+spel_audio_synth_player_bpm_set(spel_audio_synth_player player, float bpm);
 
 #endif
