@@ -1535,6 +1535,84 @@ spel_hidden void spel_audio_bus_process(spel_audio_mixer_t* mixer, float* output
 	spel_audio_dsp_apply(&mixer->buses[0].dsp, output, frameCount, channels, sampleRate);
 }
 
+static bool read_voice_frames(spel_audio_voice_t* v, float* scratch,
+							   ma_uint32 frameCount, ma_uint32 channels,
+							   ma_uint32* outFrames, bool* pitchRawEnd)
+{
+	if (v->pitch == 1.0F)
+	{
+		ma_uint64 dec_read = 0;
+		ma_result result =
+			ma_decoder_read_pcm_frames(v->decoder, scratch, frameCount, &dec_read);
+		*outFrames = (ma_uint32)dec_read;
+		*pitchRawEnd = false;
+		return (result == MA_SUCCESS && dec_read > 0) != 0;
+	}
+
+	if (!v->pitch_buf)
+	{
+		return false;
+	}
+
+	ma_uint32 raw_needed = (ma_uint32)(ceilf(v->pitch * (float)frameCount)) + 1;
+	if (raw_needed > v->pitch_buf_cap)
+	{
+		raw_needed = v->pitch_buf_cap;
+	}
+
+	ma_uint64 raw_read = 0;
+	ma_result result =
+		ma_decoder_read_pcm_frames(v->decoder, v->pitch_buf, raw_needed, &raw_read);
+
+	if (result != MA_SUCCESS || raw_read == 0)
+	{
+		return false;
+	}
+
+	ma_uint32 safe = (ma_uint32)raw_read;
+	ma_uint32 max_i0 = (safe > 1) ? safe - 2 : 0;
+
+	for (ma_uint32 fi = 0; fi < frameCount; fi++)
+	{
+		float src_float = (float)fi * v->pitch;
+		ma_uint32 i0 = (ma_uint32)src_float;
+		float frac = src_float - (float)i0;
+
+		if (i0 > max_i0)
+		{
+			i0 = max_i0;
+			frac = 0.0F;
+		}
+
+		ma_uint32 i1 = i0 + 1;
+		for (ma_uint32 ch = 0; ch < channels; ch++)
+		{
+			ma_uint32 si = (fi * channels) + ch;
+			float a = v->pitch_buf[(i0 * channels) + ch];
+			float b = v->pitch_buf[(i1 * channels) + ch];
+			scratch[si] = a + (frac * (b - a));
+		}
+	}
+
+	*outFrames = frameCount;
+	*pitchRawEnd = (raw_read < (ma_uint64)raw_needed);
+	return true;
+}
+
+static void voice_mark_end(spel_audio_voice_t* v, bool pitchRawEnd,
+							ma_uint32 outFrames, ma_uint32 frameCount)
+{
+	if (pitchRawEnd || outFrames < frameCount)
+	{
+		ma_decoder_seek_to_pcm_frame(v->decoder, 0);
+	}
+	else
+	{
+		atomic_store_explicit(&v->playing, false, memory_order_release);
+		atomic_store_explicit(&v->done, true, memory_order_release);
+	}
+}
+
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							  ma_uint32 frameCount, uint32_t channels, float* scratch,
 							  uint32_t sampleRate)
@@ -1551,76 +1629,16 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 			continue;
 		}
 
-		memset(scratch, 0, (__ssize_t)(frameCount * channels) * sizeof(float));
+		memset(scratch, 0, (size_t)(frameCount * channels) * sizeof(float));
 
 		ma_uint32 out_frames = 0;
 		bool pitch_raw_end = false;
 
-		if (v->pitch == 1.0F)
+		if (!read_voice_frames(v, scratch, frameCount, channels, &out_frames,
+							   &pitch_raw_end))
 		{
-			ma_uint64 dec_read = 0;
-			ma_result result =
-				ma_decoder_read_pcm_frames(v->decoder, scratch, frameCount, &dec_read);
-
-			out_frames = (ma_uint32)dec_read;
-
-			if (result != MA_SUCCESS || dec_read == 0)
-			{
-				atomic_store_explicit(&v->playing, false, memory_order_release);
-				atomic_store_explicit(&v->done, true, memory_order_release);
-				continue;
-			}
-		}
-		else if (v->pitch_buf)
-		{
-			ma_uint32 raw_needed = (ma_uint32)(ceilf(v->pitch * (float)frameCount)) + 1;
-			if (raw_needed > v->pitch_buf_cap)
-			{
-				raw_needed = v->pitch_buf_cap;
-			}
-
-			ma_uint64 raw_read = 0;
-			ma_result result = ma_decoder_read_pcm_frames(v->decoder, v->pitch_buf,
-														  raw_needed, &raw_read);
-
-			if (result != MA_SUCCESS || raw_read == 0)
-			{
-				atomic_store_explicit(&v->playing, false, memory_order_release);
-				atomic_store_explicit(&v->done, true, memory_order_release);
-				continue;
-			}
-
-			ma_uint32 safe = (ma_uint32)raw_read;
-			ma_uint32 max_i0 = (safe > 1) ? safe - 2 : 0;
-
-			for (ma_uint32 fi = 0; fi < frameCount; fi++)
-			{
-				float src_float = (float)fi * v->pitch;
-				ma_uint32 i0 = (ma_uint32)src_float;
-				float frac = src_float - (float)i0;
-
-				if (i0 > max_i0)
-				{
-					i0 = max_i0;
-					frac = 0.0F;
-				}
-
-				ma_uint32 i1 = i0 + 1;
-
-				for (ma_uint32 ch = 0; ch < channels; ch++)
-				{
-					ma_uint32 si = (fi * channels) + ch;
-					float a = v->pitch_buf[(i0 * channels) + ch];
-					float b = v->pitch_buf[(i1 * channels) + ch];
-					scratch[si] = a + (frac * (b - a));
-				}
-			}
-
-			out_frames = frameCount;
-			pitch_raw_end = (raw_read < (ma_uint64)raw_needed);
-		}
-		else
-		{
+			atomic_store_explicit(&v->playing, false, memory_order_release);
+			atomic_store_explicit(&v->done, true, memory_order_release);
 			continue;
 		}
 
@@ -1628,23 +1646,16 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 
 		if (v->bus_id == 0)
 		{
-			apply_accumulate(output, scratch, out_frames, channels, v->volume, v->pan_l,
-							 v->pan_r);
+			apply_accumulate(output, scratch, out_frames, channels,
+							 v->volume, v->pan_l, v->pan_r);
 		}
 		else if (v->bus_id < mixer->bus_count && mixer->buses[v->bus_id].buffer)
 		{
 			apply_accumulate(mixer->buses[v->bus_id].buffer, scratch, out_frames,
 							 channels, v->volume, v->pan_l, v->pan_r);
 		}
-		if (pitch_raw_end || out_frames < frameCount)
-		{
-			ma_decoder_seek_to_pcm_frame(v->decoder, 0);
-		}
-		else
-		{
-			atomic_store_explicit(&v->playing, false, memory_order_release);
-			atomic_store_explicit(&v->done, true, memory_order_release);
-		}
+
+		voice_mark_end(v, pitch_raw_end, out_frames, frameCount);
 	}
 }
 

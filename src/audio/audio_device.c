@@ -20,7 +20,7 @@ static void device_callback(ma_device* device, void* output, const void* input,
 		return;
 	}
 
-	memset(output, 0, (__ssize_t)frameCount * state->channels * sizeof(float));
+	memset(output, 0, sizeof(float) * state->channels * frameCount);
 
 	for (uint32_t bi = 1; bi < state->mixer.bus_count; bi++)
 	{
@@ -28,7 +28,7 @@ static void device_callback(ma_device* device, void* output, const void* input,
 		if (bus->buffer)
 		{
 			memset(bus->buffer, 0,
-				   (__ssize_t)frameCount * state->channels * sizeof(float));
+				   sizeof(float) * state->channels * frameCount);
 		}
 	}
 
@@ -64,7 +64,7 @@ spel_api bool spel_audio_init(void)
 	uint32_t buffer_size = spel.audio.buffer_size ? spel.audio.buffer_size : 512;
 
 	state->scratch = (float*)spel_memory_malloc(
-		(__ssize_t)(buffer_size * state->channels) * sizeof(float), SPEL_MEM_TAG_AUDIO);
+		sizeof(float) * buffer_size * state->channels, SPEL_MEM_TAG_AUDIO);
 	if (!state->scratch)
 	{
 		spel_memory_free(state);
@@ -99,12 +99,12 @@ spel_api bool spel_audio_init(void)
 		if (bi > 0)
 		{
 			b->buffer = (float*)spel_memory_malloc(
-				(__ssize_t)(buffer_size * state->channels) * sizeof(float),
+				sizeof(float) * buffer_size * state->channels,
 				SPEL_MEM_TAG_AUDIO);
 			if (b->buffer)
 			{
 				memset(b->buffer, 0,
-					   (__ssize_t)(buffer_size * state->channels) * sizeof(float));
+					   sizeof(float) * buffer_size * state->channels);
 			}
 		}
 	}
