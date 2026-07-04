@@ -275,6 +275,13 @@ executable(
     install: true
 )
 
+executable(
+    'spel-mid2sht',
+    sources: ['tools/mid2sht.c'],
+    cpp_args: [rel_compile_args],
+    install: true
+)
+
 # Spël
 dependencies = [dependency('sdl3'), m_dep]
 
