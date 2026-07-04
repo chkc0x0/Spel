@@ -197,7 +197,7 @@ struct spel_audio_voice_t
 	atomic_bool active;
 	bool fire_forget;
 	atomic_bool done;
-	atomic_uint start_frame;
+	_Atomic float rms;
 	struct desc_bridge* desc_bridge; // non-null only for custom decoders
 	uint32_t bus_id;				 // 0 = master
 	spel_audio_dsp_chain_t dsp;
@@ -211,7 +211,6 @@ typedef struct spel_audio_voice_t spel_audio_voice_t;
 typedef struct
 {
 	spel_audio_voice_t voices[SPEL_AUDIO_MAX_VOICES];
-	atomic_uint frame_counter;
 	uint32_t bus_count;
 	spel_audio_bus_state_t buses[SPEL_AUDIO_MAX_BUSES];
 } spel_audio_mixer_t;

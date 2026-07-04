@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
+#include <float.h>
 
 typedef struct desc_bridge
 {
@@ -97,10 +98,10 @@ static int find_free_slot(spel_audio_mixer_t* mixer)
 	return -1;
 }
 
-static int steal_oldest_voice(spel_audio_mixer_t* mixer)
+static int steal_quietest_voice(spel_audio_mixer_t* mixer)
 {
-	int oldest_idx = -1;
-	uint32_t oldest_frame = UINT32_MAX;
+	int quietest_idx = -1;
+	float quietest_rms = FLT_MAX;
 
 	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
 	{
@@ -115,15 +116,15 @@ static int steal_oldest_voice(spel_audio_mixer_t* mixer)
 			continue;
 		}
 
-		uint32_t start = atomic_load_explicit(&v->start_frame, memory_order_acquire);
-		if (start < oldest_frame)
+		float rms = atomic_load_explicit(&v->rms, memory_order_acquire);
+		if (rms < quietest_rms)
 		{
-			oldest_frame = start;
-			oldest_idx = i;
+			quietest_rms = rms;
+			quietest_idx = i;
 		}
 	}
 
-	return oldest_idx;
+	return quietest_idx;
 }
 
 static int voice_index(spel_audio_state_t* state, spel_audio_voice voice)
@@ -239,7 +240,7 @@ spel_audio_voice_create_from_desc(const spel_audio_source_desc* desc)
 	int slot = find_free_slot(&state->mixer);
 	if (slot < 0)
 	{
-		slot = steal_oldest_voice(&state->mixer);
+		slot = steal_quietest_voice(&state->mixer);
 		if (slot < 0)
 		{
 			spel_warn("no free audio voice slots and no voice to steal (max %d)",
@@ -1617,8 +1618,6 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							  ma_uint32 frameCount, uint32_t channels, float* scratch,
 							  uint32_t sampleRate)
 {
-	atomic_fetch_add_explicit(&mixer->frame_counter, 1, memory_order_relaxed);
-
 	for (int i = 0; i < SPEL_AUDIO_MAX_VOICES; i++)
 	{
 		spel_audio_voice_t* v = &mixer->voices[i];
@@ -1643,6 +1642,18 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 		}
 
 		spel_audio_dsp_apply(&v->dsp, scratch, out_frames, channels, sampleRate);
+
+		{
+			float sum_sq = 0.0F;
+			uint32_t total_samples = (uint32_t)out_frames * channels;
+			for (uint32_t s = 0; s < total_samples; s++)
+			{
+				sum_sq += scratch[s] * scratch[s];
+			}
+			atomic_store_explicit(&v->rms,
+				sqrtf(sum_sq / (float)total_samples),
+				memory_order_release);
+		}
 
 		if (v->bus_id == 0)
 		{

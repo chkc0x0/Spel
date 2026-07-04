@@ -131,10 +131,6 @@ static void process_voice_cmd(spel_audio_mixer_t* mixer, spel_audio_voice_t* v,
 	case SPEL_AUDIO_CMD_PLAY:
 		atomic_store_explicit(&v->playing, true, memory_order_release);
 		atomic_store_explicit(&v->done, false, memory_order_release);
-		atomic_store_explicit(
-			&v->start_frame,
-			atomic_load_explicit(&mixer->frame_counter, memory_order_relaxed),
-			memory_order_release);
 		return;
 
 	case SPEL_AUDIO_CMD_STOP:
