@@ -6,8 +6,8 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
-#define SPEL_AUDIO_MAX_VOICES 48
-#define SPEL_AUDIO_MAX_BUSES 16
+#define SPEL_AUDIO_MAX_VOICES 64
+#define SPEL_AUDIO_MAX_BUSES 24
 #define SPEL_AUDIO_CMD_RING_SIZE 64 /* pot */
 #define SPEL_AUDIO_CMD_RING_MASK (SPEL_AUDIO_CMD_RING_SIZE - 1)
 #define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4

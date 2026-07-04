@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#define SPEL_SYNTH_MAX_VOICES 64
+
 typedef enum
 {
 	SPEL_SYNTH_ENV_IDLE,
@@ -20,21 +22,11 @@ typedef enum
 
 typedef struct
 {
-	spel_audio_synth_waveform wave_type;
-	bool note_active;
-	float frequency;
-	float velocity;
-	float params[SPEL_AUDIO_SYNTH_PARAM_COUNT];
-	float detune;
-
-	spel_audio_synth_generator_fn custom_generator;
-	void* custom_user_data;
-
-	float note_duration;
-	spel_audio_synth_envelope env_cfg;
-
 	float phase;
 	float elapsed;
+	float frequency;
+	float velocity;
+	float note_duration;
 	unsigned int rng_state;
 	spel_synth_env_state_t env_state;
 	float env_level;
@@ -43,13 +35,28 @@ typedef struct
 	float release_rate;
 	float sustain_level;
 
+	int32_t voice_id;
+	bool active;
+} spel_internal_voice_t;
+
+typedef struct spel_audio_synth_t
+{
+	spel_audio_synth_waveform wave_type;
+	float params[SPEL_AUDIO_SYNTH_PARAM_COUNT];
+	float detune;
+	spel_audio_synth_generator_fn custom_generator;
+	void* custom_user_data;
+	spel_audio_synth_envelope env_cfg;
+
+	spel_internal_voice_t* voices;
+	uint32_t max_voices;
+	uint32_t next_voice_id;
+
 	uint32_t sample_rate;
 	uint32_t channels;
 
 	spel_audio_voice audio_voice;
 } spel_synth_t;
-
-static void reset_envelope_rates(spel_synth_t* sv);
 
 static float gen_sine(float phase)
 {
@@ -81,6 +88,20 @@ static float gen_noise(unsigned int* rng)
 	return (float)((int)s) * (1.0F / 2147483648.0F);
 }
 
+static void reset_voice_rates(spel_internal_voice_t* v, const spel_synth_t* sv)
+{
+	float sr = (float)sv->sample_rate;
+	float att = sv->env_cfg.attack;
+	float dec = sv->env_cfg.decay;
+	float rel = sv->env_cfg.release;
+
+	v->sustain_level = sv->env_cfg.sustain;
+	v->attack_rate = (att > 0.0F) ? (1.0F / (att * sr)) : 1.0F;
+	v->decay_rate = (dec > 0.0F) ? ((1.0F - v->sustain_level) / (dec * sr))
+								 : (1.0F - v->sustain_level);
+	v->release_rate = (rel > 0.0F) ? (v->sustain_level / (rel * sr)) : v->sustain_level;
+}
+
 static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 {
 	spel_synth_t* sv = (spel_synth_t*)userCtx;
@@ -95,16 +116,6 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 	}
 
 	float inv_sr = 1.0F / (float)sr;
-	float phase_inc = sv->frequency * inv_sr;
-
-	float detune_inc = 0.0F;
-	if (sv->detune != 0.0F)
-	{
-		detune_inc = sv->frequency * (powf(2.0F, sv->detune / 1200.0F) - 1.0F) * inv_sr;
-	}
-
-	bool note_active = sv->note_active;
-	float velocity = sv->velocity;
 	float pulse_width = sv->params[0];
 	if (pulse_width < 0.01F)
 	{
@@ -115,66 +126,84 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 		pulse_width = 0.99F;
 	}
 
-	uint32_t f;
+	bool any_active_this_call = false;
 
-	for (f = 0; f < frames; f++)
+	for (uint32_t f = 0; f < frames; f++)
 	{
-		float sample;
+		float frame_sum = 0.0F;
 
-		if (!note_active)
+		for (uint32_t i = 0; i < sv->max_voices; i++)
 		{
-			goto synth_silence;
-		}
-
-		switch (sv->env_state)
-		{
-		case SPEL_SYNTH_ENV_ATTACK:
-			sv->env_level += sv->attack_rate;
-			if (sv->env_level >= 1.0F)
+			spel_internal_voice_t* v = &sv->voices[i];
+			if (!v->active)
 			{
-				sv->env_level = 1.0F;
-				sv->env_state = SPEL_SYNTH_ENV_DECAY;
+				continue;
 			}
-			break;
 
-		case SPEL_SYNTH_ENV_DECAY:
-			sv->env_level -= sv->decay_rate;
-			if (sv->env_level <= sv->sustain_level)
+			switch (v->env_state)
 			{
-				sv->env_level = sv->sustain_level;
-				sv->env_state = SPEL_SYNTH_ENV_SUSTAIN;
-			}
-			break;
-
-		case SPEL_SYNTH_ENV_SUSTAIN:
-			if (sv->note_duration > 0.0F)
-			{
-				sv->elapsed += inv_sr;
-				if (sv->elapsed >= sv->note_duration)
+			case SPEL_SYNTH_ENV_ATTACK:
+				v->env_level += v->attack_rate;
+				if (v->env_level >= 1.0F)
 				{
-					sv->env_state = SPEL_SYNTH_ENV_RELEASE;
+					v->env_level = 1.0F;
+					v->env_state = SPEL_SYNTH_ENV_DECAY;
 				}
-			}
-			break;
+				break;
 
-		case SPEL_SYNTH_ENV_RELEASE:
-			sv->env_level -= sv->release_rate;
-			if (sv->env_level <= 0.0F)
+			case SPEL_SYNTH_ENV_DECAY:
+				v->env_level -= v->decay_rate;
+				if (v->env_level <= v->sustain_level)
+				{
+					v->env_level = v->sustain_level;
+					v->env_state = SPEL_SYNTH_ENV_SUSTAIN;
+				}
+				break;
+
+			case SPEL_SYNTH_ENV_SUSTAIN:
+				if (v->note_duration > 0.0F)
+				{
+					v->elapsed += inv_sr;
+					if (v->elapsed >= v->note_duration)
+					{
+						v->env_state = SPEL_SYNTH_ENV_RELEASE;
+					}
+				}
+				break;
+
+			case SPEL_SYNTH_ENV_RELEASE:
+				v->env_level -= v->release_rate;
+				if (v->env_level <= 0.0F)
+				{
+					v->env_level = 0.0F;
+					v->env_state = SPEL_SYNTH_ENV_DONE;
+				}
+				break;
+
+			case SPEL_SYNTH_ENV_IDLE:
+			case SPEL_SYNTH_ENV_DONE:
+			default:
+				break;
+			}
+
+			if (v->env_state == SPEL_SYNTH_ENV_IDLE ||
+				v->env_state == SPEL_SYNTH_ENV_DONE)
 			{
-				sv->env_level = 0.0F;
-				sv->env_state = SPEL_SYNTH_ENV_DONE;
-				goto synth_silence;
+				v->active = false;
+				continue;
 			}
-			break;
 
-		case SPEL_SYNTH_ENV_IDLE:
-		case SPEL_SYNTH_ENV_DONE:
-		default:
-			goto synth_silence;
-		}
+			any_active_this_call = true;
 
-		{
-			float gen_phase = sv->phase;
+			float phase_inc = v->frequency * inv_sr;
+			if (sv->detune != 0.0F)
+			{
+				phase_inc +=
+					v->frequency * (powf(2.0F, sv->detune / 1200.0F) - 1.0F) * inv_sr;
+			}
+
+			float sample;
+			float gen_phase = v->phase;
 
 			switch (sv->wave_type)
 			{
@@ -199,7 +228,7 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 				break;
 
 			case SPEL_AUDIO_SYNTH_WAVE_NOISE:
-				sample = gen_noise(&sv->rng_state);
+				sample = gen_noise(&v->rng_state);
 				break;
 
 			case SPEL_AUDIO_SYNTH_WAVE_CUSTOM:
@@ -214,77 +243,112 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 					sample = 0.0F;
 				}
 				break;
+
+			default:
+				sample = 0.0F;
+				break;
 			}
 
-			sample *= sv->env_level * velocity;
+			sample *= v->env_level * v->velocity;
+			frame_sum += sample;
+
+			v->phase += phase_inc;
+			if (v->phase >= 1.0F)
+			{
+				v->phase -= 1.0F;
+			}
 		}
 
 		for (uint32_t ch = 0; ch < channels; ch++)
 		{
-			out[(f * channels) + ch] = sample;
+			out[(f * channels) + ch] = frame_sum;
 		}
-
-		sv->phase += phase_inc + detune_inc;
-		if (sv->phase >= 1.0F)
-		{
-			sv->phase -= 1.0F;
-		}
-
-		continue;
-
-	synth_silence:
-		for (uint32_t ch = 0; ch < channels; ch++)
-		{
-			out[(f * channels) + ch] = 0.0F;
-		}
-
-		if (f > 0)
-		{
-			return sizeof(float) * (size_t)f * channels;
-		}
-		return 0;
 	}
 
+	if (!any_active_this_call)
+	{
+		return 0;
+	}
 	return sizeof(float) * (size_t)frames * channels;
 }
 
 static int synth_seek_cb(void* userCtx, int64_t offset, int whence)
 {
 	spel_synth_t* sv = (spel_synth_t*)userCtx;
-
 	if (offset == 0 && whence == SEEK_SET)
 	{
-		sv->phase = 0.0F;
-		sv->elapsed = 0.0F;
-		sv->env_state = SPEL_SYNTH_ENV_IDLE;
-		sv->env_level = 0.0F;
+		for (uint32_t i = 0; i < sv->max_voices; i++)
+		{
+			memset(&sv->voices[i], 0, sizeof(spel_internal_voice_t));
+		}
 		return 0;
 	}
 	return -1;
 }
 
-static void reset_envelope_rates(spel_synth_t* sv)
+static int32_t find_voice_slot(spel_synth_t* sv)
 {
-	float sr = (float)sv->sample_rate;
-	float att = sv->env_cfg.attack;
-	float dec = sv->env_cfg.decay;
-	float rel = sv->env_cfg.release;
+	int32_t steal_candidate = -1;
+	int steal_prio = -1;
 
-	sv->sustain_level = sv->env_cfg.sustain;
-	sv->attack_rate = (att > 0.0F) ? (1.0F / (att * sr)) : 1.0F;
-	sv->decay_rate = (dec > 0.0F) ? ((1.0F - sv->sustain_level) / (dec * sr))
-								  : (1.0F - sv->sustain_level);
-	sv->release_rate =
-		(rel > 0.0F) ? (sv->sustain_level / (rel * sr)) : sv->sustain_level;
+	for (uint32_t i = 0; i < sv->max_voices; i++)
+	{
+		spel_internal_voice_t* v = &sv->voices[i];
+		if (!v->active)
+		{
+			return (int32_t)i;
+		}
+
+		int prio = 0;
+		switch (v->env_state)
+		{
+		case SPEL_SYNTH_ENV_IDLE:
+			prio = 5;
+			break;
+		case SPEL_SYNTH_ENV_DONE:
+			prio = 5;
+			break;
+		case SPEL_SYNTH_ENV_RELEASE:
+			prio = 4;
+			break;
+		case SPEL_SYNTH_ENV_SUSTAIN:
+			prio = 3;
+			break;
+		case SPEL_SYNTH_ENV_DECAY:
+			prio = 2;
+			break;
+		case SPEL_SYNTH_ENV_ATTACK:
+			prio = 1;
+			break;
+		}
+
+		if (prio > steal_prio)
+		{
+			steal_prio = prio;
+			steal_candidate = (int32_t)i;
+		}
+	}
+
+	return steal_candidate;
 }
 
-spel_api spel_audio_synth spel_audio_synth_create(spel_audio_synth_waveform wave)
+spel_api spel_audio_synth spel_audio_synth_create(spel_audio_synth_waveform wave,
+												  uint32_t maxVoices)
 {
 	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		spel_error(SPEL_ERR_INVALID_STATE, "audio not initialised");
 		return NULL;
+	}
+
+	if (maxVoices < 1)
+	{
+		maxVoices = 1;
+	}
+	if (maxVoices > SPEL_SYNTH_MAX_VOICES)
+	{
+		maxVoices = SPEL_SYNTH_MAX_VOICES;
 	}
 
 	spel_synth_t* sv =
@@ -295,16 +359,27 @@ spel_api spel_audio_synth spel_audio_synth_create(spel_audio_synth_waveform wave
 	}
 	memset(sv, 0, sizeof(*sv));
 
+	sv->voices = (spel_internal_voice_t*)spel_memory_malloc(
+		sizeof(spel_internal_voice_t) * maxVoices, SPEL_MEM_TAG_AUDIO);
+	if (!sv->voices)
+	{
+		spel_memory_free(sv);
+		return NULL;
+	}
+	memset(sv->voices, 0, sizeof(spel_internal_voice_t) * maxVoices);
+
 	sv->wave_type = wave;
+	sv->max_voices = maxVoices;
 	sv->sample_rate = state->sample_rate;
 	sv->channels = state->channels;
-	sv->note_duration = -1.0F;
 	sv->params[0] = 0.5F;
-	sv->rng_state = 12345U;
 
 	spel_audio_synth_envelope_default((spel_audio_synth)sv);
 
-	reset_envelope_rates(sv);
+	for (uint32_t i = 0; i < maxVoices; i++)
+	{
+		sv->voices[i].rng_state = 12345U + (i * 7919U);
+	}
 
 	spel_audio_source_desc desc;
 	desc.type = SPEL_AUDIO_SOURCE_CALLBACKS;
@@ -316,6 +391,7 @@ spel_api spel_audio_synth spel_audio_synth_create(spel_audio_synth_waveform wave
 	if (!av)
 	{
 		spel_error(SPEL_ERR_INTERNAL, "failed to create mixer voice for synth");
+		spel_memory_free(sv->voices);
 		spel_memory_free(sv);
 		return NULL;
 	}
@@ -331,8 +407,8 @@ spel_api void spel_audio_synth_destroy(spel_audio_synth sv)
 		return;
 	}
 	spel_synth_t* s = (spel_synth_t*)sv;
-
 	spel_audio_voice_destroy(s->audio_voice);
+	spel_memory_free(s->voices);
 	spel_memory_free(s);
 }
 
@@ -345,31 +421,40 @@ spel_api spel_audio_voice spel_audio_synth_voice_get(spel_audio_synth sv)
 	return ((spel_synth_t*)sv)->audio_voice;
 }
 
-spel_api void spel_audio_synth_note_on(spel_audio_synth sv, float frequency,
-									   float velocity)
+spel_api int32_t spel_audio_synth_note_on(spel_audio_synth sv, float frequency,
+										  float velocity)
 {
 	if (!sv)
 	{
-		return;
+		return -1;
 	}
 	spel_synth_t* s = (spel_synth_t*)sv;
 
-	s->frequency = frequency;
-	s->velocity = velocity;
-	s->note_active = true;
-
-	s->phase = 0.0F;
-	s->elapsed = 0.0F;
-	reset_envelope_rates(s);
-	s->env_state = SPEL_SYNTH_ENV_ATTACK;
-	s->env_level = 0.0F;
-
-	spel_audio_voice_t* av = (spel_audio_voice_t*)s->audio_voice;
-	if (av->decoder)
+	int32_t slot = find_voice_slot(s);
+	if (slot < 0)
 	{
-		ma_decoder_seek_to_pcm_frame(av->decoder, 0);
+		return -1;
 	}
+
+	spel_internal_voice_t* v = &s->voices[slot];
+	v->active = true;
+	v->frequency = frequency;
+	v->velocity = velocity;
+	v->phase = 0.0F;
+	v->elapsed = 0.0F;
+	v->note_duration = -1.0F;
+	v->env_state = SPEL_SYNTH_ENV_ATTACK;
+	v->env_level = 0.0F;
+	reset_voice_rates(v, s);
+
+	v->rng_state =
+		12345U + (unsigned int)(frequency * 100.0F) + (unsigned int)(velocity * 65535.0F);
+
+	v->voice_id = (int32_t)(s->next_voice_id++);
+
 	spel_audio_voice_play(s->audio_voice);
+
+	return v->voice_id;
 }
 
 spel_api void spel_audio_synth_note_off(spel_audio_synth sv)
@@ -379,11 +464,36 @@ spel_api void spel_audio_synth_note_off(spel_audio_synth sv)
 		return;
 	}
 	spel_synth_t* s = (spel_synth_t*)sv;
-
-	if (s->env_state == SPEL_SYNTH_ENV_ATTACK || s->env_state == SPEL_SYNTH_ENV_DECAY ||
-		s->env_state == SPEL_SYNTH_ENV_SUSTAIN)
+	for (uint32_t i = 0; i < s->max_voices; i++)
 	{
-		s->env_state = SPEL_SYNTH_ENV_RELEASE;
+		spel_internal_voice_t* v = &s->voices[i];
+		if (v->active && (v->env_state == SPEL_SYNTH_ENV_ATTACK ||
+						  v->env_state == SPEL_SYNTH_ENV_DECAY ||
+						  v->env_state == SPEL_SYNTH_ENV_SUSTAIN))
+		{
+			v->env_state = SPEL_SYNTH_ENV_RELEASE;
+		}
+	}
+}
+
+spel_api void spel_audio_synth_note_off_voice(spel_audio_synth sv, int32_t voiceId)
+{
+	if (!sv || voiceId < 0)
+	{
+		return;
+	}
+	spel_synth_t* s = (spel_synth_t*)sv;
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		spel_internal_voice_t* v = &s->voices[i];
+		if (v->active && v->voice_id == voiceId &&
+			(v->env_state == SPEL_SYNTH_ENV_ATTACK ||
+			 v->env_state == SPEL_SYNTH_ENV_DECAY ||
+			 v->env_state == SPEL_SYNTH_ENV_SUSTAIN))
+		{
+			v->env_state = SPEL_SYNTH_ENV_RELEASE;
+			return;
+		}
 	}
 }
 
@@ -393,7 +503,50 @@ spel_api bool spel_audio_synth_note_active(spel_audio_synth sv)
 	{
 		return false;
 	}
-	return ((spel_synth_t*)sv)->note_active;
+	spel_synth_t* s = (spel_synth_t*)sv;
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].active)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+spel_api bool spel_audio_synth_voice_active(spel_audio_synth sv, int32_t voiceId)
+{
+	if (!sv || voiceId < 0)
+	{
+		return false;
+	}
+	spel_synth_t* s = (spel_synth_t*)sv;
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].voice_id == voiceId && s->voices[i].active)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+spel_api uint32_t spel_audio_synth_active_count(spel_audio_synth sv)
+{
+	if (!sv)
+	{
+		return 0;
+	}
+	spel_synth_t* s = (spel_synth_t*)sv;
+	uint32_t count = 0;
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].active)
+		{
+			count++;
+		}
+	}
+	return count;
 }
 
 spel_api void spel_audio_synth_note(spel_audio_synth sv, float frequency, float velocity,
@@ -403,12 +556,21 @@ spel_api void spel_audio_synth_note(spel_audio_synth sv, float frequency, float 
 	{
 		return;
 	}
+	int32_t vid = spel_audio_synth_note_on(sv, frequency, velocity);
+	if (vid < 0)
+	{
+		return;
+	}
+
 	spel_synth_t* s = (spel_synth_t*)sv;
-
-	s->note_duration = (duration > 0.0F) ? duration : -1.0F;
-
-	spel_audio_synth_note_on(sv, frequency, velocity);
-	s->note_duration = (duration > 0.0F) ? duration : -1.0F;
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].voice_id == vid)
+		{
+			s->voices[i].note_duration = (duration > 0.0F) ? duration : -1.0F;
+			return;
+		}
+	}
 }
 
 spel_api void spel_audio_synth_envelope_set(spel_audio_synth sv,
@@ -420,7 +582,13 @@ spel_api void spel_audio_synth_envelope_set(spel_audio_synth sv,
 	}
 	spel_synth_t* s = (spel_synth_t*)sv;
 	s->env_cfg = *env;
-	reset_envelope_rates(s);
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].active)
+		{
+			reset_voice_rates(&s->voices[i], s);
+		}
+	}
 }
 
 const spel_api spel_audio_synth_envelope* spel_audio_synth_envelope_get(
@@ -444,7 +612,14 @@ spel_api void spel_audio_synth_envelope_default(spel_audio_synth sv)
 	s->env_cfg.decay = 0.05F;
 	s->env_cfg.sustain = 0.7F;
 	s->env_cfg.release = 0.2F;
-	reset_envelope_rates(s);
+
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].active)
+		{
+			reset_voice_rates(&s->voices[i], s);
+		}
+	}
 }
 
 spel_api void spel_audio_synth_param_set(spel_audio_synth sv, uint32_t index, float value)
@@ -510,7 +685,19 @@ spel_api float spel_audio_synth_frequency_get(spel_audio_synth sv)
 	{
 		return 0.0F;
 	}
-	return ((spel_synth_t*)sv)->frequency;
+	spel_synth_t* s = (spel_synth_t*)sv;
+
+	int32_t best_id = -1;
+	float freq = 0.0F;
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		if (s->voices[i].active && s->voices[i].voice_id > best_id)
+		{
+			best_id = s->voices[i].voice_id;
+			freq = s->voices[i].frequency;
+		}
+	}
+	return freq;
 }
 
 static const char* SEMITONE_LETTERS = "CDEFGAB";
@@ -614,7 +801,6 @@ spel_api spel_audio_synth_player spel_audio_synth_player_create(
 	{
 		return NULL;
 	}
-
 	memset(p, 0, sizeof(*p));
 	p->synth = synth;
 	p->sheet = sheet;
@@ -674,7 +860,7 @@ spel_api void spel_audio_synth_player_update(spel_audio_synth_player player)
 		return;
 	}
 
-	p->elapsed_beats += spel.time.delta_unscaled * (double)(p->bpm / 60.0F);
+	p->elapsed_beats += spel.time.delta * (double)(p->bpm / 60.0F);
 
 	const spel_audio_synth_sheet* sh = p->sheet;
 	uint32_t count = sh->num_events;
@@ -689,7 +875,6 @@ spel_api void spel_audio_synth_player_update(spel_audio_synth_player player)
 		}
 
 		float freq = 440.0F * powf(2.0F, (float)(ev->midi_note - 69) * (1.0F / 12.0F));
-
 		float dur = ev->duration;
 		if (dur <= 0.0F)
 		{
@@ -702,7 +887,7 @@ spel_api void spel_audio_synth_player_update(spel_audio_synth_player player)
 		p->next_event++;
 	}
 
-	if (p->next_event >= count && p->active_event < 0)
+	if (p->next_event >= count && !spel_audio_synth_note_active(p->synth))
 	{
 		p->done = true;
 		p->playing = false;

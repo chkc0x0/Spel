@@ -27,7 +27,7 @@ typedef struct
 typedef struct spel_audio_synth_t* spel_audio_synth;
 
 spel_api spel_audio_synth
-spel_audio_synth_create(spel_audio_synth_waveform wave);
+spel_audio_synth_create(spel_audio_synth_waveform wave, uint32_t maxVoices);
 
 spel_api void
 spel_audio_synth_destroy(spel_audio_synth sv);
@@ -35,15 +35,24 @@ spel_audio_synth_destroy(spel_audio_synth sv);
 spel_api spel_audio_voice
 spel_audio_synth_voice_get(spel_audio_synth sv);
 
-spel_api void
+spel_api int32_t
 spel_audio_synth_note_on(spel_audio_synth sv,
 						 float frequency, float velocity);
 
 spel_api void
 spel_audio_synth_note_off(spel_audio_synth sv);
 
+spel_api void
+spel_audio_synth_note_off_voice(spel_audio_synth sv, int32_t voiceId);
+
 spel_api bool
 spel_audio_synth_note_active(spel_audio_synth sv);
+
+spel_api bool
+spel_audio_synth_voice_active(spel_audio_synth sv, int32_t voiceId);
+
+spel_api uint32_t
+spel_audio_synth_active_count(spel_audio_synth sv);
 
 spel_api void
 spel_audio_synth_note(spel_audio_synth sv,
@@ -57,7 +66,8 @@ spel_audio_synth_envelope_set(spel_audio_synth sv,
 spel_api const spel_audio_synth_envelope*
 spel_audio_synth_envelope_get(spel_audio_synth sv);
 
-spel_api void spel_audio_synth_envelope_default(spel_audio_synth sv);
+spel_api void
+spel_audio_synth_envelope_default(spel_audio_synth sv);
 
 spel_api void
 spel_audio_synth_param_set(spel_audio_synth sv,
