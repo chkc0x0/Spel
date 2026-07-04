@@ -15,12 +15,15 @@
 #include <stdlib.h>
 
 spel_api spel_context spel = {
-	.window = {.title = "Spël",
-			   .width = 800,
-			   .height = 600,
-			   .borderless = false,
-			   .swapchain = {.vsync = 1, .depth = 16, .stencil = 0, .msaa = 1},
-			   .resizable = false},
+	.window =
+		{
+			.title = "Spël",
+			.width = 800,
+			.height = 600,
+			.borderless = false,
+			.swapchain = {.vsync = 1, .depth = 16, .stencil = 0, .msaa = 1,},
+			.resizable = false,
+		},
 	.log = {.severity = SPEL_SEV_DEBUG}};
 
 #ifdef SP_WEAK_LINK
@@ -146,7 +149,7 @@ spel_api int spel_app_run(spel_app_desc* app)
 	gfx_desc.debug = spel.env.debug;
 
 	spel.gfx = spel_gfx_context_create(&gfx_desc);
-	if (!spel_audio_init(NULL))
+	if (!spel_audio_init())
 	{
 		spel_error(SPEL_ERR_INTERNAL, "failed to initialize audio engine");
 	}

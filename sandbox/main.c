@@ -39,41 +39,43 @@ static bool fx_reverb_on;
 static bool fx_limiter_on;
 static bool fx_compressor_on;
 
-static int  fx_bitcrush_slot = -1;
+static int fx_bitcrush_slot = -1;
 static float fx_decim = 4.0f;
-static float fx_bits  = 16.0f;
+static float fx_bits = 16.0f;
 
 static uint32_t bitcrush_hold_count;
-static float    bitcrush_last[2];
+static float bitcrush_last[2];
 
-static int  fx_bitcrush_decim_idx = 2;
-static int  fx_bitcrush_bit_idx   = 0;
+static int fx_bitcrush_decim_idx = 2;
+static int fx_bitcrush_bit_idx = 0;
 static const float fx_bitcrush_decim_presets[] = {1, 2, 4, 8, 16, 32, 64};
-static const float fx_bitcrush_bit_presets[]   = {16, 8, 4, 2, 1};
+static const float fx_bitcrush_bit_presets[] = {16, 8, 4, 2, 1};
 
 static const float pitch_presets[] = {1.0f, 0.5f, 0.75f, 1.25f, 1.5f, 2.0f};
 static const int pitch_preset_count = sizeof(pitch_presets) / sizeof(pitch_presets[0]);
-static int fx_pitch_idx;  /* index into pitch_presets */
+static int fx_pitch_idx; /* index into pitch_presets */
 
 static bool wall_was_at_top;
 static bool wall_was_at_bottom;
 static bool hit_player_paddle;
 static bool hit_enemy_paddle;
 
-static void bitcrush_cb(float* samples, uint32_t frameCount,
-						uint32_t channels, uint32_t sampleRate,
-						spel_audio_custom_effect_ctx* ctx)
+static void bitcrush_cb(float* samples, uint32_t frameCount, uint32_t channels,
+						uint32_t sampleRate, spel_audio_custom_effect_ctx* ctx)
 {
 	float bit_depth = ctx->params[0]; /* 1..16 */
-	float decim_f   = ctx->params[1]; /* 1..64 */
+	float decim_f = ctx->params[1];	  /* 1..64 */
 
-	if (bit_depth < 1.0f) bit_depth = 16.0f;
-	if (decim_f   < 1.0f) decim_f   = 1.0f;
+	if (bit_depth < 1.0f)
+		bit_depth = 16.0f;
+	if (decim_f < 1.0f)
+		decim_f = 1.0f;
 
 	float steps = powf(2.0f, bit_depth);
 	float scale = 1.0f / steps;
 	uint32_t decim = (uint32_t)(decim_f + 0.5f);
-	if (decim < 1) decim = 1;
+	if (decim < 1)
+		decim = 1;
 
 	for (uint32_t f = 0; f < frameCount; f++)
 	{
@@ -96,6 +98,11 @@ static void bitcrush_cb(float* samples, uint32_t frameCount,
 		}
 	}
 	bitcrush_hold_count = (bitcrush_hold_count + frameCount) % decim;
+}
+
+void spel_conf()
+{
+	
 }
 
 void spel_load()
@@ -168,23 +175,21 @@ void spel_update(double dt)
 	{
 		fx_flanger_on = !fx_flanger_on;
 		spel_audio_voice_flanger_set(bgm, fx_flanger_on ? 2.0f : 0.0f,
-									  fx_flanger_on ? 8.0f : 0.0f, 0.4f);
+									 fx_flanger_on ? 8.0f : 0.0f, 0.4f);
 	}
 	if (spel_input_key_pressed(SPEL_KEY_6))
 	{
 		fx_chorus_on = !fx_chorus_on;
 		spel_audio_voice_chorus_set(bgm, fx_chorus_on ? 0.3f : 0.0f,
-									 fx_chorus_on ? 1.0f : 0.0f, 0.5f, 9);
+									fx_chorus_on ? 1.0f : 0.0f, 0.5f, 9);
 	}
 
 	if (spel_input_key_pressed(SPEL_KEY_7))
 	{
 		fx_reverb_on = !fx_reverb_on;
-		spel_audio_voice_reverb_set(bgm,
-									fx_reverb_on ? 0.84f : 0.0f,
-									fx_reverb_on ? 0.4f  : 0.0f,
-									fx_reverb_on ? 30.0f : 0.0f,
-									fx_reverb_on ? 0.5f  : 0.0f);
+		spel_audio_voice_reverb_set(
+			bgm, fx_reverb_on ? 0.84f : 0.0f, fx_reverb_on ? 0.4f : 0.0f,
+			fx_reverb_on ? 30.0f : 0.0f, fx_reverb_on ? 0.5f : 0.0f);
 	}
 
 	if (spel_input_key_pressed(SPEL_KEY_0))
@@ -203,13 +208,13 @@ void spel_update(double dt)
 	if (spel_input_key_pressed(SPEL_KEY_9))
 	{
 		fx_compressor_on = !fx_compressor_on;
-		spel_audio_master_compressor_set(fx_compressor_on ? -12.0f : -999.0f,
-									 fx_compressor_on ? 4.0f : 1.0f,
-									 fx_compressor_on ? 5.0f : 0.0f,
-									 fx_compressor_on ? 50.0f : 0.0f);
+		spel_audio_master_compressor_set(
+			fx_compressor_on ? -12.0f : -999.0f, fx_compressor_on ? 4.0f : 1.0f,
+			fx_compressor_on ? 5.0f : 0.0f, fx_compressor_on ? 50.0f : 0.0f);
 	}
 
-	/* Bit crusher — key - (minus) toggle, = cycle sample rate (primary), BACKSPACE cycle bit depth */
+	/* Bit crusher — key - (minus) toggle, = cycle sample rate (primary), BACKSPACE cycle
+	 * bit depth */
 	if (spel_input_key_pressed(SPEL_KEY_MINUS))
 	{
 		if (fx_bitcrush_slot >= 0)
@@ -220,13 +225,12 @@ void spel_update(double dt)
 		else
 		{
 			fx_decim = 4.0f;
-			fx_bits  = 16.0f;
+			fx_bits = 16.0f;
 			fx_bitcrush_decim_idx = 2;
-			fx_bitcrush_bit_idx   = 0;
+			fx_bitcrush_bit_idx = 0;
 			bitcrush_hold_count = 0;
 			bitcrush_last[0] = bitcrush_last[1] = 0.0f;
-			fx_bitcrush_slot =
-				spel_audio_voice_effect_add(bgm, bitcrush_cb, NULL);
+			fx_bitcrush_slot = spel_audio_voice_effect_add(bgm, bitcrush_cb, NULL);
 			spel_audio_voice_effect_param_set(bgm, fx_bitcrush_slot, 0, fx_bits);
 			spel_audio_voice_effect_param_set(bgm, fx_bitcrush_slot, 1, fx_decim);
 		}
@@ -331,7 +335,7 @@ void spel_update(double dt)
 
 		if (sfx_score)
 		{
-			//spel_audio_play(sfx_score, false);
+			// spel_audio_play(sfx_score, false);
 		}
 	}
 	if (ball.center.x > spel.window.width && ball_reset_delay == -1.0F)
@@ -341,7 +345,7 @@ void spel_update(double dt)
 
 		if (sfx_score)
 		{
-			//spel_audio_play(sfx_score, false);
+			// spel_audio_play(sfx_score, false);
 		}
 	}
 }
@@ -393,13 +397,11 @@ void spel_draw()
 					  fx_reverb_on ? "ON" : "off");
 	spel_canvas_print(spel_vec2(8, spel.window.height - 69),
 					  "[0]pitch:%.2fx  [8]lim:-%s  [9]cmp:-%s",
-					  pitch_presets[fx_pitch_idx],
-					  fx_limiter_on ? "ON " : "off",
+					  pitch_presets[fx_pitch_idx], fx_limiter_on ? "ON " : "off",
 					  fx_compressor_on ? "ON " : "off");
 	spel_canvas_print(spel_vec2(8, spel.window.height - 45),
 					  "[-]bitcrush:%-3s  [=]sr:%.0fx  [BSP]bits:%.0f",
-					  fx_bitcrush_slot >= 0 ? "ON" : "off",
-					  fx_decim, fx_bits);
+					  fx_bitcrush_slot >= 0 ? "ON" : "off", fx_decim, fx_bits);
 
 	spel_canvas_end();
 }

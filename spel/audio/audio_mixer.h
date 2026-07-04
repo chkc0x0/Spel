@@ -70,4 +70,13 @@ spel_api bool spel_audio_master_compressor_enabled(void);
 
 spel_hidden void spel_audio_cleanup(void);
 
+spel_api void spel_audio_bus_volume_set(uint32_t busId, float volume);
+spel_api void spel_audio_bus_mute_set(uint32_t busId, bool mute);
+spel_api void spel_audio_bus_solo_set(uint32_t busId, bool solo);
+spel_api uint32_t spel_audio_bus_find(const char* name);
+spel_api uint32_t spel_audio_bus_count(void);
+
+spel_api void spel_audio_voice_bus_set(spel_audio_voice voice, uint32_t busId);
+spel_api uint32_t spel_audio_voice_bus(spel_audio_voice voice);
+
 #endif

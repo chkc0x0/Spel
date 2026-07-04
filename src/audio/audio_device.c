@@ -7,6 +7,7 @@
 #include "core/types.h"
 #include "utils/internal/miniaudio.h"
 #include <stddef.h>
+#include <stdio.h>
 
 static void device_callback(ma_device* device, void* output, const void* input,
 							ma_uint32 frameCount)
@@ -21,18 +22,31 @@ static void device_callback(ma_device* device, void* output, const void* input,
 
 	memset(output, 0, (__ssize_t)frameCount * state->channels * sizeof(float));
 
+	for (uint32_t bi = 1; bi < state->mixer.bus_count; bi++)
+	{
+		spel_audio_bus_state_t* bus = &state->mixer.buses[bi];
+		if (bus->buffer)
+		{
+			memset(bus->buffer, 0,
+				   (__ssize_t)frameCount * state->channels * sizeof(float));
+		}
+	}
+
 	spel_audio_cmd_process(&state->mixer, &state->cmd_ring);
 
 	spel_audio_mixer_process(&state->mixer, (float*)output, frameCount, state->channels,
 							 state->scratch, state->sample_rate);
 
-	spel_audio_master_process(&state->mixer, (float*)output, frameCount,
-							  state->channels, state->sample_rate);
+	spel_audio_bus_process(&state->mixer, (float*)output, frameCount, state->channels,
+						   state->sample_rate);
+
+	spel_audio_master_process(&state->mixer, (float*)output, frameCount, state->channels,
+							  state->sample_rate);
 }
 
-spel_api bool spel_audio_init(const spel_audio_config* config)
+spel_api bool spel_audio_init(void)
 {
-	if (spel.audio)
+	if (spel.audio.state)
 	{
 		spel_warn("audio already initialized");
 		return false;
@@ -47,15 +61,10 @@ spel_api bool spel_audio_init(const spel_audio_config* config)
 
 	memset(state, 0, sizeof(*state));
 
-	if (config)
-	{
-		state->config = *config;
-	}
+	state->channels = spel.audio.channels ? spel.audio.channels : 2;
+	state->sample_rate = spel.audio.sample_rate ? spel.audio.sample_rate : 48000;
 
-	state->channels = state->config.channels ? state->config.channels : 2;
-	state->sample_rate = state->config.sample_rate ? state->config.sample_rate : 48000;
-
-	uint32_t buffer_size = state->config.buffer_size ? state->config.buffer_size : 512;
+	uint32_t buffer_size = spel.audio.buffer_size ? spel.audio.buffer_size : 512;
 
 	state->scratch = (float*)spel_memory_malloc(
 		(__ssize_t)(buffer_size * state->channels) * sizeof(float), SPEL_MEM_TAG_AUDIO);
@@ -63,6 +72,44 @@ spel_api bool spel_audio_init(const spel_audio_config* config)
 	{
 		spel_memory_free(state);
 		return false;
+	}
+
+	uint32_t bus_count = spel.audio.bus_count ? spel.audio.bus_count : 1;
+	if (bus_count > SPEL_AUDIO_MAX_BUSES)
+	{
+		bus_count = SPEL_AUDIO_MAX_BUSES;
+	}
+	state->mixer.bus_count = bus_count;
+
+	for (uint32_t bi = 0; bi < bus_count; bi++)
+	{
+		spel_audio_bus_state_t* b = &state->mixer.buses[bi];
+		b->volume = 1.0F;
+		b->mute = false;
+		b->solo = false;
+		b->buffer = NULL;
+
+		if (spel.audio.bus_names && spel.audio.bus_names[bi])
+		{
+			snprintf(b->name, sizeof(b->name), "%s", spel.audio.bus_names[bi]);
+		}
+		else
+		{
+			snprintf(b->name, sizeof(b->name), "bus_%u", bi);
+		}
+		b->name_hash = spel_audio_name_hash(b->name);
+
+		if (bi > 0)
+		{
+			b->buffer = (float*)spel_memory_malloc(
+				(__ssize_t)(buffer_size * state->channels) * sizeof(float),
+				SPEL_MEM_TAG_AUDIO);
+			if (b->buffer)
+			{
+				memset(b->buffer, 0,
+					   (__ssize_t)(buffer_size * state->channels) * sizeof(float));
+			}
+		}
 	}
 
 	ma_device_config dev_cfg = ma_device_config_init(ma_device_type_playback);
@@ -97,7 +144,7 @@ spel_api bool spel_audio_init(const spel_audio_config* config)
 	state->channels = state->device.playback.channels;
 	state->sample_rate = state->device.sampleRate;
 
-	spel.audio = (spel_audio)state;
+	spel.audio.state = state;
 	spel_info("audio initialized (%uHz, %uch, %u frames)", state->sample_rate,
 			  state->channels, buffer_size);
 	return true;
@@ -105,12 +152,12 @@ spel_api bool spel_audio_init(const spel_audio_config* config)
 
 spel_api void spel_audio_shutdown(void)
 {
-	if (!spel.audio)
+	if (!spel.audio.state)
 	{
 		return;
 	}
 
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 
 	ma_device_stop(&state->device);
 	ma_device_uninit(&state->device);
@@ -130,7 +177,16 @@ spel_api void spel_audio_shutdown(void)
 		spel_audio_voice_free_effects(v);
 	}
 
+	for (uint32_t bi = 1; bi < state->mixer.bus_count; bi++)
+	{
+		if (state->mixer.buses[bi].buffer)
+		{
+			spel_memory_free(state->mixer.buses[bi].buffer);
+			state->mixer.buses[bi].buffer = NULL;
+		}
+	}
+
 	spel_memory_free(state->scratch);
 	spel_memory_free(state);
-	spel.audio = NULL;
+	spel.audio.state = NULL;
 }

@@ -101,6 +101,36 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			}
 			continue;
 
+		case SPEL_AUDIO_CMD_BUS_VOLUME:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count)
+			{
+				mixer->buses[bi].volume = cmd.float_value;
+			}
+			continue;
+		}
+
+		case SPEL_AUDIO_CMD_BUS_MUTE:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count)
+			{
+				mixer->buses[bi].mute = cmd.bool_value;
+			}
+			continue;
+		}
+
+		case SPEL_AUDIO_CMD_BUS_SOLO:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count)
+			{
+				mixer->buses[bi].solo = cmd.bool_value;
+			}
+			continue;
+		}
+
 		default:
 			break;
 		}
@@ -231,6 +261,16 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 				v->reverb->mix       = cmd.floats[3];
 			}
 			break;
+
+		case SPEL_AUDIO_CMD_VOICE_BUS:
+		{
+			uint32_t new_bus = (uint32_t)cmd.float_value;
+			if (new_bus < mixer->bus_count)
+			{
+				v->bus_id = new_bus;
+			}
+			break;
+		}
 
 		default:
 			break;

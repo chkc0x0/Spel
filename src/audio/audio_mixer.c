@@ -213,7 +213,7 @@ spel_audio_voice_create_from_desc(const spel_audio_source_desc* desc)
 		return NULL;
 	}
 
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		spel_error(SPEL_ERR_INVALID_STATE, "audio not initialized");
@@ -353,7 +353,7 @@ spel_api void spel_audio_voice_destroy(spel_audio_voice voice)
 		return;
 	}
 
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -377,7 +377,7 @@ spel_api void spel_audio_voice_destroy(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_play(spel_audio_voice voice)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, voice);
 	if (idx < 0)
 	{
@@ -396,7 +396,7 @@ spel_api void spel_audio_voice_play(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_stop(spel_audio_voice voice)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, voice);
 	if (idx < 0)
 	{
@@ -415,7 +415,7 @@ spel_api void spel_audio_voice_stop(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_pause(spel_audio_voice voice)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, voice);
 	if (idx < 0)
 	{
@@ -454,7 +454,7 @@ spel_api bool spel_audio_voice_done(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_volume_set(spel_audio_voice voice, float volume)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, voice);
 	if (idx < 0)
 	{
@@ -483,7 +483,7 @@ spel_api float spel_audio_voice_volume_get(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_pan_set(spel_audio_voice voice, float pan)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, voice);
 	if (idx < 0)
 	{
@@ -512,7 +512,7 @@ spel_api float spel_audio_voice_pan(spel_audio_voice voice)
 
 spel_api void spel_audio_voice_looping_set(spel_audio_voice voice, bool loop)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, voice);
 	if (idx < 0)
 	{
@@ -548,7 +548,7 @@ spel_api spel_audio_voice spel_audio_play(spel_audio_source source, bool loop)
 		return NULL;
 	}
 
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	int idx = voice_index(state, v);
 	if (idx < 0)
 	{
@@ -581,7 +581,7 @@ spel_api void spel_audio_voice_distortion_set(spel_audio_voice voice, float driv
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -621,7 +621,7 @@ spel_api void spel_audio_voice_lpf_set(spel_audio_voice voice, float cutoffHz)
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -670,7 +670,7 @@ spel_api void spel_audio_voice_hpf_set(spel_audio_voice voice, float cutoffHz)
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -720,7 +720,7 @@ spel_api void spel_audio_voice_delay_set(spel_audio_voice voice, float delayMs,
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -770,7 +770,7 @@ spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -820,7 +820,7 @@ spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -889,7 +889,7 @@ spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -913,7 +913,7 @@ spel_api void spel_audio_voice_pitch_set(spel_audio_voice voice, float pitch)
 
 	if (pitch != 1.0F && !v->pitch_buf)
 	{
-		uint32_t buf_sz = state->config.buffer_size;
+		uint32_t buf_sz = spel.audio.buffer_size;
 		if (buf_sz == 0)
 		{
 			buf_sz = 512;
@@ -943,7 +943,7 @@ spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice, float decay,
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -1430,6 +1430,59 @@ static void apply_master_compressor(float* output, ma_uint32 frames, uint32_t ch
 	}
 }
 
+spel_hidden void spel_audio_bus_process(spel_audio_mixer_t* mixer, float* output,
+										ma_uint32 frameCount, uint32_t channels,
+										uint32_t sampleRate)
+{
+	(void)sampleRate;
+
+	bool any_solo = false;
+	for (uint32_t bi = 1; bi < mixer->bus_count; bi++)
+	{
+		if (mixer->buses[bi].solo)
+		{
+			any_solo = true;
+			break;
+		}
+	}
+
+	for (uint32_t bi = 1; bi < mixer->bus_count; bi++)
+	{
+		spel_audio_bus_state_t* b = &mixer->buses[bi];
+		if (!b->buffer)
+		{
+			continue;
+		}
+
+		if (b->mute)
+		{
+			continue;
+		}
+
+		if (any_solo && !b->solo)
+		{
+			continue;
+		}
+
+		float vol = b->volume;
+		if (channels == 1)
+		{
+			for (ma_uint32 f = 0; f < frameCount; f++)
+			{
+				output[f] += b->buffer[f] * vol;
+			}
+		}
+		else
+		{
+			for (ma_uint32 f = 0; f < frameCount; f++)
+			{
+				output[(size_t)(f * 2)]     += b->buffer[(size_t)(f * 2)]     * vol;
+				output[(size_t)(f * 2) + 1] += b->buffer[(size_t)(f * 2) + 1] * vol;
+			}
+		}
+	}
+}
+
 void spel_audio_master_process(spel_audio_mixer_t* mixer, float* output,
 							   ma_uint32 frameCount, uint32_t channels,
 							   uint32_t sampleRate)
@@ -1553,27 +1606,31 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 			apply_effect_chain(scratch, out_frames, channels, sampleRate, _chain);
 		}
 
-		apply_accumulate(output, scratch, out_frames, channels, v->volume, v->pan_l,
-						 v->pan_r);
-
+		if (v->bus_id == 0)
+		{
+			apply_accumulate(output, scratch, out_frames, channels, v->volume, v->pan_l,
+							 v->pan_r);
+		}
+		else if (v->bus_id < mixer->bus_count && mixer->buses[v->bus_id].buffer)
+		{
+			apply_accumulate(mixer->buses[v->bus_id].buffer, scratch, out_frames,
+							 channels, v->volume, v->pan_l, v->pan_r);
+		}
 		if (pitch_raw_end || out_frames < frameCount)
 		{
-			if (atomic_load_explicit(&v->looping, memory_order_relaxed))
-			{
-				ma_decoder_seek_to_pcm_frame(v->decoder, 0);
-			}
-			else
-			{
-				atomic_store_explicit(&v->playing, false, memory_order_release);
-				atomic_store_explicit(&v->done, true, memory_order_release);
-			}
+			ma_decoder_seek_to_pcm_frame(v->decoder, 0);
+		}
+		else
+		{
+			atomic_store_explicit(&v->playing, false, memory_order_release);
+			atomic_store_explicit(&v->done, true, memory_order_release);
 		}
 	}
 }
 
 spel_hidden void spel_audio_cleanup(void)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -1629,7 +1686,7 @@ spel_hidden void spel_audio_cleanup(void)
 spel_api void spel_audio_master_limiter_set(float thresholdDb, float attackMs,
 											float releaseMs)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -1664,7 +1721,7 @@ spel_api void spel_audio_master_limiter_set(float thresholdDb, float attackMs,
 spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
 											   float attackMs, float releaseMs)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -1699,7 +1756,7 @@ spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
 
 spel_api bool spel_audio_master_limiter_enabled(void)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return false;
@@ -1709,7 +1766,7 @@ spel_api bool spel_audio_master_limiter_enabled(void)
 
 spel_api bool spel_audio_master_compressor_enabled(void)
 {
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return false;
@@ -1724,7 +1781,7 @@ spel_api int spel_audio_voice_effect_add(spel_audio_voice voice,
 	{
 		return -1;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return -1;
@@ -1779,7 +1836,7 @@ spel_api void spel_audio_voice_effect_remove(spel_audio_voice voice, int slot)
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -1853,7 +1910,7 @@ spel_api void spel_audio_voice_effect_param_set(spel_audio_voice voice, int slot
 	{
 		return;
 	}
-	spel_audio_state_t* state = (spel_audio_state_t*)spel.audio;
+	spel_audio_state_t* state = spel.audio.state;
 	if (!state)
 	{
 		return;
@@ -1880,4 +1937,108 @@ spel_api void spel_audio_voice_effect_param_set(spel_audio_voice voice, int slot
 	{
 		spel_warn("audio cmd ring full, dropping effect param set for voice %d", idx);
 	}
+}
+
+spel_api void spel_audio_bus_volume_set(uint32_t busId, float volume)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || busId >= state->mixer.bus_count)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_BUS_VOLUME;
+	cmd.voice_index = (int)busId;
+	cmd.float_value = volume;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_bus_mute_set(uint32_t busId, bool mute)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || busId >= state->mixer.bus_count)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_BUS_MUTE;
+	cmd.voice_index = (int)busId;
+	cmd.bool_value = mute;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_bus_solo_set(uint32_t busId, bool solo)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || busId >= state->mixer.bus_count)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_BUS_SOLO;
+	cmd.voice_index = (int)busId;
+	cmd.bool_value = solo;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api uint32_t spel_audio_bus_find(const char* name)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || !name)
+	{
+		return UINT32_MAX;
+	}
+
+	uint64_t hash = spel_audio_name_hash(name);
+	for (uint32_t bi = 0; bi < state->mixer.bus_count; bi++)
+	{
+		if (state->mixer.buses[bi].name_hash == hash)
+		{
+			return bi;
+		}
+	}
+	return UINT32_MAX;
+}
+
+spel_api uint32_t spel_audio_bus_count(void)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state)
+	{
+		return 0;
+	}
+	return state->mixer.bus_count;
+}
+
+spel_api void spel_audio_voice_bus_set(spel_audio_voice voice, uint32_t busId)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state)
+	{
+		return;
+	}
+
+	int idx = voice_index(state, voice);
+	if (idx < 0)
+	{
+		return;
+	}
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_VOICE_BUS;
+	cmd.voice_index = idx;
+	cmd.float_value = (float)busId;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api uint32_t spel_audio_voice_bus(spel_audio_voice voice)
+{
+	if (!voice)
+	{
+		return 0;
+	}
+	return ((spel_audio_voice_t*)voice)->bus_id;
 }

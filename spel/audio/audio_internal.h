@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #define SPEL_AUDIO_MAX_VOICES 48
+#define SPEL_AUDIO_MAX_BUSES 16
 #define SPEL_AUDIO_CMD_RING_SIZE 64 /* pot */
 #define SPEL_AUDIO_CMD_RING_MASK (SPEL_AUDIO_CMD_RING_SIZE - 1)
 #define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
@@ -34,6 +35,10 @@ typedef enum
 	SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS,
 	SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE,
 	SPEL_AUDIO_CMD_REVERB_PARAMS,
+	SPEL_AUDIO_CMD_BUS_VOLUME,
+	SPEL_AUDIO_CMD_BUS_MUTE,
+	SPEL_AUDIO_CMD_BUS_SOLO,
+	SPEL_AUDIO_CMD_VOICE_BUS,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -137,6 +142,16 @@ typedef struct
 	spel_audio_effect_slot_t slots[];
 } spel_audio_effect_array_t;
 
+typedef struct
+{
+	float volume;
+	bool mute;
+	bool solo;
+	float* buffer;
+	uint64_t name_hash;
+	char name[16];
+} spel_audio_bus_state_t;
+
 struct spel_audio_voice_t
 {
 	ma_decoder* decoder;
@@ -151,6 +166,7 @@ struct spel_audio_voice_t
 	atomic_bool done;
 	atomic_uint start_frame;
 	struct desc_bridge* desc_bridge; // non-null only for custom decoders
+	uint32_t bus_id;				 // 0 = master
 	spel_audio_effect_distortion_t* distortion;
 	spel_audio_effect_onepole_t* lpf;
 	spel_audio_effect_onepole_t* hpf;
@@ -171,6 +187,8 @@ typedef struct
 {
 	spel_audio_voice_t voices[SPEL_AUDIO_MAX_VOICES];
 	atomic_uint frame_counter;
+	uint32_t bus_count;
+	spel_audio_bus_state_t buses[SPEL_AUDIO_MAX_BUSES];
 	bool limiter_enabled;
 	float limiter_threshold;
 	float limiter_attack;
@@ -185,10 +203,9 @@ typedef struct
 	float compressor_env[2];
 } spel_audio_mixer_t;
 
-struct spel_audio_t
+struct spel_audio_state
 {
 	ma_device device;
-	spel_audio_config config;
 	spel_audio_mixer_t mixer;
 	spel_audio_cmd_ring cmd_ring;
 	float* scratch;
@@ -196,7 +213,7 @@ struct spel_audio_t
 	uint32_t sample_rate;
 };
 
-typedef struct spel_audio_t spel_audio_state_t;
+typedef struct spel_audio_state spel_audio_state_t;
 
 struct spel_audio_source_t
 {
@@ -204,6 +221,17 @@ struct spel_audio_source_t
 };
 
 typedef struct spel_audio_source_t spel_audio_source_t;
+
+static inline uint64_t spel_audio_name_hash(const char* name)
+{
+	uint64_t h = 1469598103934665603ULL;
+	while (*name)
+	{
+		h ^= (unsigned char)*name++;
+		h *= 1099511628211ULL;
+	}
+	return h;
+}
 
 spel_hidden bool spel_audio_cmd_push(spel_audio_cmd_ring* ring,
 									 const spel_audio_cmd* cmd);
@@ -214,6 +242,9 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							  ma_uint32 frameCount, uint32_t channels, float* scratch,
 							  uint32_t sampleRate);
+
+void spel_audio_bus_process(spel_audio_mixer_t* mixer, float* output,
+							ma_uint32 frameCount, uint32_t channels, uint32_t sampleRate);
 
 void spel_audio_master_process(spel_audio_mixer_t* mixer, float* output,
 							   ma_uint32 frameCount, uint32_t channels,
