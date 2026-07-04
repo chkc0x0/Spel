@@ -30,15 +30,15 @@ typedef enum
 	SPEL_AUDIO_CMD_CHORUS_PARAMS,
 	SPEL_AUDIO_CMD_EFFECT_PARAM_SET,
 	SPEL_AUDIO_CMD_PITCH_SET,
-	SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS,
-	SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE,
-	SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS,
-	SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE,
 	SPEL_AUDIO_CMD_REVERB_PARAMS,
 	SPEL_AUDIO_CMD_BUS_VOLUME,
 	SPEL_AUDIO_CMD_BUS_MUTE,
 	SPEL_AUDIO_CMD_BUS_SOLO,
 	SPEL_AUDIO_CMD_VOICE_BUS,
+	SPEL_AUDIO_CMD_BUS_LIMITER_PARAMS,
+	SPEL_AUDIO_CMD_BUS_LIMITER_ENABLE,
+	SPEL_AUDIO_CMD_BUS_COMPRESSOR_PARAMS,
+	SPEL_AUDIO_CMD_BUS_COMPRESSOR_ENABLE,
 } spel_audio_cmd_type;
 
 typedef struct
@@ -144,12 +144,45 @@ typedef struct
 
 typedef struct
 {
+	float threshold;
+	float attack;
+	float release;
+	float peak[2];
+} spel_audio_effect_limiter_t;
+
+typedef struct
+{
+	float threshold;
+	float attack;
+	float release;
+	float ratio;
+	float env[2];
+} spel_audio_effect_compressor_t;
+
+typedef struct
+{
+	spel_audio_effect_distortion_t* distortion;
+	spel_audio_effect_onepole_t* lpf;
+	spel_audio_effect_onepole_t* hpf;
+	spel_audio_effect_delay_t* delay;
+	spel_audio_effect_flanger_t* flanger;
+	spel_audio_effect_chorus_t* chorus;
+	spel_audio_effect_reverb_t* reverb;
+	_Atomic(spel_audio_effect_array_t*) effect_chain;
+	spel_audio_effect_array_t* effect_chain_to_free;
+	spel_audio_effect_limiter_t* limiter;
+	spel_audio_effect_compressor_t* compressor;
+} spel_audio_dsp_chain_t;
+
+typedef struct
+{
 	float volume;
 	bool mute;
 	bool solo;
 	float* buffer;
 	uint64_t name_hash;
 	char name[16];
+	spel_audio_dsp_chain_t dsp;
 } spel_audio_bus_state_t;
 
 struct spel_audio_voice_t
@@ -167,15 +200,7 @@ struct spel_audio_voice_t
 	atomic_uint start_frame;
 	struct desc_bridge* desc_bridge; // non-null only for custom decoders
 	uint32_t bus_id;				 // 0 = master
-	spel_audio_effect_distortion_t* distortion;
-	spel_audio_effect_onepole_t* lpf;
-	spel_audio_effect_onepole_t* hpf;
-	spel_audio_effect_delay_t* delay;
-	spel_audio_effect_flanger_t* flanger;
-	spel_audio_effect_chorus_t* chorus;
-	spel_audio_effect_reverb_t* reverb;
-	_Atomic(spel_audio_effect_array_t*) effect_chain;
-	spel_audio_effect_array_t* effect_chain_to_free;
+	spel_audio_dsp_chain_t dsp;
 	float pitch;
 	float* pitch_buf;
 	uint32_t pitch_buf_cap;
@@ -189,18 +214,6 @@ typedef struct
 	atomic_uint frame_counter;
 	uint32_t bus_count;
 	spel_audio_bus_state_t buses[SPEL_AUDIO_MAX_BUSES];
-	bool limiter_enabled;
-	float limiter_threshold;
-	float limiter_attack;
-	float limiter_release;
-	float limiter_peak[2];
-
-	bool compressor_enabled;
-	float compressor_threshold;
-	float compressor_ratio;
-	float compressor_attack;
-	float compressor_release;
-	float compressor_env[2];
 } spel_audio_mixer_t;
 
 struct spel_audio_state
@@ -246,10 +259,6 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 void spel_audio_bus_process(spel_audio_mixer_t* mixer, float* output,
 							ma_uint32 frameCount, uint32_t channels, uint32_t sampleRate);
 
-void spel_audio_master_process(spel_audio_mixer_t* mixer, float* output,
-							   ma_uint32 frameCount, uint32_t channels,
-							   uint32_t sampleRate);
-
-spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v);
+spel_hidden void spel_audio_dsp_free(spel_audio_dsp_chain_t* dsp);
 
 #endif

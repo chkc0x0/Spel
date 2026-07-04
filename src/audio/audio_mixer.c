@@ -140,44 +140,60 @@ static int voice_index(spel_audio_state_t* state, spel_audio_voice voice)
 	return idx;
 }
 
-spel_hidden void spel_audio_voice_free_effects(spel_audio_voice_t* v)
+spel_hidden void spel_audio_dsp_free(spel_audio_dsp_chain_t* dsp)
 {
-	if (v->distortion)
+	if (dsp->distortion)
 	{
-		spel_memory_free(v->distortion);
-		v->distortion = NULL;
+		spel_memory_free(dsp->distortion);
+		dsp->distortion = NULL;
 	}
-	if (v->lpf)
+	if (dsp->lpf)
 	{
-		spel_memory_free(v->lpf);
-		v->lpf = NULL;
+		spel_memory_free(dsp->lpf);
+		dsp->lpf = NULL;
 	}
-	if (v->hpf)
+	if (dsp->hpf)
 	{
-		spel_memory_free(v->hpf);
-		v->hpf = NULL;
+		spel_memory_free(dsp->hpf);
+		dsp->hpf = NULL;
 	}
-	free_buffered_effect(v->delay);
-	v->delay = NULL;
-	free_buffered_effect(v->flanger);
-	v->flanger = NULL;
-	free_buffered_effect(v->chorus);
-	v->chorus = NULL;
-	free_buffered_effect(v->reverb);
-	v->reverb = NULL;
+	free_buffered_effect(dsp->delay);
+	dsp->delay = NULL;
+	free_buffered_effect(dsp->flanger);
+	dsp->flanger = NULL;
+	free_buffered_effect(dsp->chorus);
+	dsp->chorus = NULL;
+	free_buffered_effect(dsp->reverb);
+	dsp->reverb = NULL;
 
-	if (v->effect_chain_to_free)
+	if (dsp->effect_chain_to_free)
 	{
-		spel_memory_free(v->effect_chain_to_free);
-		v->effect_chain_to_free = NULL;
+		spel_memory_free(dsp->effect_chain_to_free);
+		dsp->effect_chain_to_free = NULL;
 	}
 	spel_audio_effect_array_t* _chain =
-		atomic_load_explicit(&v->effect_chain, memory_order_relaxed);
+		atomic_load_explicit(&dsp->effect_chain, memory_order_relaxed);
 	if (_chain)
 	{
 		spel_memory_free(_chain);
-		atomic_store_explicit(&v->effect_chain, NULL, memory_order_release);
+		atomic_store_explicit(&dsp->effect_chain, NULL, memory_order_release);
 	}
+
+	if (dsp->limiter)
+	{
+		spel_memory_free(dsp->limiter);
+		dsp->limiter = NULL;
+	}
+	if (dsp->compressor)
+	{
+		spel_memory_free(dsp->compressor);
+		dsp->compressor = NULL;
+	}
+}
+
+static void spel_audio_voice_free_effects(spel_audio_voice_t* v)
+{
+	spel_audio_dsp_free(&v->dsp);
 
 	if (v->pitch_buf)
 	{
@@ -594,18 +610,18 @@ spel_api void spel_audio_voice_distortion_set(spel_audio_voice voice, float driv
 
 	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
 
-	if (drive > 0.0F && !v->distortion)
+	if (drive > 0.0F && !v->dsp.distortion)
 	{
-		v->distortion = (spel_audio_effect_distortion_t*)spel_memory_malloc(
+		v->dsp.distortion = (spel_audio_effect_distortion_t*)spel_memory_malloc(
 			sizeof(spel_audio_effect_distortion_t), SPEL_MEM_TAG_AUDIO);
-		if (!v->distortion)
+		if (!v->dsp.distortion)
 		{
 			return;
 		}
-		memset(v->distortion, 0, sizeof(*v->distortion));
+		memset(v->dsp.distortion, 0, sizeof(*v->dsp.distortion));
 	}
 
-	if (v->distortion)
+	if (v->dsp.distortion)
 	{
 		spel_audio_cmd cmd;
 		cmd.type = SPEL_AUDIO_CMD_DISTORTION_DRIVE;
@@ -634,18 +650,18 @@ spel_api void spel_audio_voice_lpf_set(spel_audio_voice voice, float cutoffHz)
 
 	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
 
-	if (cutoffHz > 0.0F && !v->lpf)
+	if (cutoffHz > 0.0F && !v->dsp.lpf)
 	{
-		v->lpf = (spel_audio_effect_onepole_t*)spel_memory_malloc(
+		v->dsp.lpf = (spel_audio_effect_onepole_t*)spel_memory_malloc(
 			sizeof(spel_audio_effect_onepole_t), SPEL_MEM_TAG_AUDIO);
-		if (!v->lpf)
+		if (!v->dsp.lpf)
 		{
 			return;
 		}
-		memset(v->lpf, 0, sizeof(*v->lpf));
+		memset(v->dsp.lpf, 0, sizeof(*v->dsp.lpf));
 	}
 
-	if (!v->lpf)
+	if (!v->dsp.lpf)
 	{
 		return;
 	}
@@ -683,18 +699,18 @@ spel_api void spel_audio_voice_hpf_set(spel_audio_voice voice, float cutoffHz)
 
 	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
 
-	if (cutoffHz > 0.0F && !v->hpf)
+	if (cutoffHz > 0.0F && !v->dsp.hpf)
 	{
-		v->hpf = (spel_audio_effect_onepole_t*)spel_memory_malloc(
+		v->dsp.hpf = (spel_audio_effect_onepole_t*)spel_memory_malloc(
 			sizeof(spel_audio_effect_onepole_t), SPEL_MEM_TAG_AUDIO);
-		if (!v->hpf)
+		if (!v->dsp.hpf)
 		{
 			return;
 		}
-		memset(v->hpf, 0, sizeof(*v->hpf));
+		memset(v->dsp.hpf, 0, sizeof(*v->dsp.hpf));
 	}
 
-	if (!v->hpf)
+	if (!v->dsp.hpf)
 	{
 		return;
 	}
@@ -737,23 +753,23 @@ spel_api void spel_audio_voice_delay_set(spel_audio_voice voice, float delayMs,
 
 	if (delayMs <= 0.0F || mix <= 0.0F)
 	{
-		free_buffered_effect(v->delay);
-		v->delay = NULL;
+		free_buffered_effect(v->dsp.delay);
+		v->dsp.delay = NULL;
 		return;
 	}
 
-	if (!ensure_allocated((void**)&v->delay, sizeof(spel_audio_effect_delay_t)))
+	if (!ensure_allocated((void**)&v->dsp.delay, sizeof(spel_audio_effect_delay_t)))
 	{
 		return;
 	}
 	uint32_t frames_needed = (uint32_t)((delayMs * 0.001F * (float)sample_rate) + 1.0F);
-	if (!ensure_buffer(&v->delay->buffer, &v->delay->cap, frames_needed, channels))
+	if (!ensure_buffer(&v->dsp.delay->buffer, &v->dsp.delay->cap, frames_needed, channels))
 	{
 		return;
 	}
 
-	v->delay->delay_frames = (frames_needed > 0) ? frames_needed - 1 : 0;
-	v->delay->wpos = 0;
+	v->dsp.delay->delay_frames = (frames_needed > 0) ? frames_needed - 1 : 0;
+	v->dsp.delay->wpos = 0;
 
 	spel_audio_cmd cmd;
 	cmd.type = SPEL_AUDIO_CMD_DELAY_PARAMS;
@@ -787,18 +803,18 @@ spel_api void spel_audio_voice_flanger_set(spel_audio_voice voice, float rateHz,
 
 	if (rateHz <= 0.0F || depthMs <= 0.0F || mix <= 0.0F)
 	{
-		free_buffered_effect(v->flanger);
-		v->flanger = NULL;
+		free_buffered_effect(v->dsp.flanger);
+		v->dsp.flanger = NULL;
 		return;
 	}
 
-	if (!ensure_allocated((void**)&v->flanger, sizeof(spel_audio_effect_flanger_t)))
+	if (!ensure_allocated((void**)&v->dsp.flanger, sizeof(spel_audio_effect_flanger_t)))
 	{
 		return;
 	}
 
 	uint32_t frames_needed = (uint32_t)((5.0F * 0.001F * (float)sample_rate) + 1.0F);
-	if (!ensure_buffer(&v->flanger->buffer, &v->flanger->cap, frames_needed, channels))
+	if (!ensure_buffer(&v->dsp.flanger->buffer, &v->dsp.flanger->cap, frames_needed, channels))
 	{
 		return;
 	}
@@ -846,32 +862,32 @@ spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
 
 	if (rateHz <= 0.0F || depthMs <= 0.0F || mix <= 0.0F)
 	{
-		free_buffered_effect(v->chorus);
-		v->chorus = NULL;
+		free_buffered_effect(v->dsp.chorus);
+		v->dsp.chorus = NULL;
 		return;
 	}
 
-	if (!ensure_allocated((void**)&v->chorus, sizeof(spel_audio_effect_chorus_t)))
+	if (!ensure_allocated((void**)&v->dsp.chorus, sizeof(spel_audio_effect_chorus_t)))
 	{
 		return;
 	}
 
 	uint32_t frames_needed = (uint32_t)((40.0F * 0.001F * (float)sr) + 1.0F);
-	if (!ensure_buffer(&v->chorus->buffer, &v->chorus->cap, frames_needed, channels))
+	if (!ensure_buffer(&v->dsp.chorus->buffer, &v->dsp.chorus->cap, frames_needed, channels))
 	{
 		return;
 	}
 
 	for (int vi = 0; vi < voices; vi++)
 	{
-		v->chorus->base_delay[vi] = (float)(15 + (vi * 5)) * 0.001F * (float)sr;
-		if (v->chorus->base_delay[vi] >= (float)frames_needed - 1.0F)
+		v->dsp.chorus->base_delay[vi] = (float)(15 + (vi * 5)) * 0.001F * (float)sr;
+		if (v->dsp.chorus->base_delay[vi] >= (float)frames_needed - 1.0F)
 		{
-			v->chorus->base_delay[vi] = (float)frames_needed - 2.0F;
+			v->dsp.chorus->base_delay[vi] = (float)frames_needed - 2.0F;
 		}
 	}
-	v->chorus->wpos = 0;
-	v->chorus->voices = voices;
+	v->dsp.chorus->wpos = 0;
+	v->dsp.chorus->voices = voices;
 
 	spel_audio_cmd cmd;
 	cmd.type = SPEL_AUDIO_CMD_CHORUS_PARAMS;
@@ -959,12 +975,12 @@ spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice, float decay,
 
 	if (mix <= 0.0F || decay <= 0.0F)
 	{
-		free_buffered_effect(v->reverb);
-		v->reverb = NULL;
+		free_buffered_effect(v->dsp.reverb);
+		v->dsp.reverb = NULL;
 		return;
 	}
 
-	if (!ensure_allocated((void**)&v->reverb, sizeof(spel_audio_effect_reverb_t)))
+	if (!ensure_allocated((void**)&v->dsp.reverb, sizeof(spel_audio_effect_reverb_t)))
 	{
 		return;
 	}
@@ -997,57 +1013,57 @@ spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice, float decay,
 	ap_total *= 2;
 
 	uint32_t total_floats = pre_floats + combL_total + combR_total + ap_total;
-	if (!ensure_buffer(&v->reverb->buffer, &v->reverb->cap, total_floats, 1))
+	if (!ensure_buffer(&v->dsp.reverb->buffer, &v->dsp.reverb->cap, total_floats, 1))
 	{
-		free_buffered_effect(v->reverb);
-		v->reverb = NULL;
+		free_buffered_effect(v->dsp.reverb);
+		v->dsp.reverb = NULL;
 		return;
 	}
 
-	memset(v->reverb->damp_prev, 0, sizeof(v->reverb->damp_prev));
+	memset(v->dsp.reverb->damp_prev, 0, sizeof(v->dsp.reverb->damp_prev));
 
-	v->reverb->pre_offset = 0;
-	v->reverb->pre_len = pre_frames;
+	v->dsp.reverb->pre_offset = 0;
+	v->dsp.reverb->pre_len = pre_frames;
 
 	uint32_t offset = pre_floats;
 	for (int i = 0; i < 4; i++)
 	{
-		v->reverb->comb_l_len[i] = (uint32_t)(((float)COMB_L_BASE[i] * scale) + 1.0F);
-		if (v->reverb->comb_l_len[i] < 4)
+		v->dsp.reverb->comb_l_len[i] = (uint32_t)(((float)COMB_L_BASE[i] * scale) + 1.0F);
+		if (v->dsp.reverb->comb_l_len[i] < 4)
 		{
-			v->reverb->comb_l_len[i] = 4;
+			v->dsp.reverb->comb_l_len[i] = 4;
 		}
-		v->reverb->comb_l_offset[i] = offset;
-		offset += v->reverb->comb_l_len[i];
+		v->dsp.reverb->comb_l_offset[i] = offset;
+		offset += v->dsp.reverb->comb_l_len[i];
 	}
 	for (int i = 0; i < 4; i++)
 	{
-		v->reverb->comb_r_len[i] = (uint32_t)(((float)COMB_R_BASE[i] * scale) + 1.0F);
-		if (v->reverb->comb_r_len[i] < 4)
+		v->dsp.reverb->comb_r_len[i] = (uint32_t)(((float)COMB_R_BASE[i] * scale) + 1.0F);
+		if (v->dsp.reverb->comb_r_len[i] < 4)
 		{
-			v->reverb->comb_r_len[i] = 4;
+			v->dsp.reverb->comb_r_len[i] = 4;
 		}
-		v->reverb->comb_r_offset[i] = offset;
-		offset += v->reverb->comb_r_len[i];
+		v->dsp.reverb->comb_r_offset[i] = offset;
+		offset += v->dsp.reverb->comb_r_len[i];
 	}
 
 	for (int i = 0; i < 2; i++)
 	{
-		v->reverb->ap_len[i] = (uint32_t)(((float)AP_BASE[i] * scale) + 1.0F);
-		if (v->reverb->ap_len[i] < 4)
+		v->dsp.reverb->ap_len[i] = (uint32_t)(((float)AP_BASE[i] * scale) + 1.0F);
+		if (v->dsp.reverb->ap_len[i] < 4)
 		{
-			v->reverb->ap_len[i] = 4;
+			v->dsp.reverb->ap_len[i] = 4;
 		}
 	}
-	v->reverb->ap_l_offset[0] = offset;
-	offset += v->reverb->ap_len[0];
-	v->reverb->ap_l_offset[1] = offset;
-	offset += v->reverb->ap_len[1];
-	v->reverb->ap_r_offset[0] = offset;
-	offset += v->reverb->ap_len[0];
-	v->reverb->ap_r_offset[1] = offset;
+	v->dsp.reverb->ap_l_offset[0] = offset;
+	offset += v->dsp.reverb->ap_len[0];
+	v->dsp.reverb->ap_l_offset[1] = offset;
+	offset += v->dsp.reverb->ap_len[1];
+	v->dsp.reverb->ap_r_offset[0] = offset;
+	offset += v->dsp.reverb->ap_len[0];
+	v->dsp.reverb->ap_r_offset[1] = offset;
 
-	v->reverb->wpos = 0;
+	v->dsp.reverb->wpos = 0;
 
 	spel_audio_cmd cmd;
 	cmd.type = SPEL_AUDIO_CMD_REVERB_PARAMS;
@@ -1339,6 +1355,107 @@ static void apply_effect_chain(float* buf, ma_uint32 frames, uint32_t channels,
 	}
 }
 
+static float db_to_linear(float db)
+{
+	return powf(10.0F, db * 0.05F);
+}
+
+static void apply_bus_limiter(float* buf, ma_uint32 frames, uint32_t channels,
+							  uint32_t sampleRate, spel_audio_effect_limiter_t* lim)
+{
+	if (!lim)
+	{
+		return;
+	}
+	float thresh_lin = db_to_linear(lim->threshold);
+	float attack_a = expf(-1.0F / (lim->attack * (float)sampleRate));
+	float release_a = expf(-1.0F / (lim->release * (float)sampleRate));
+
+	for (ma_uint32 f = 0; f < frames; f++)
+	{
+		for (uint32_t ch = 0; ch < channels; ch++)
+		{
+			uint32_t s = (f * channels) + ch;
+			float level = fabsf(buf[s]);
+			float env = lim->peak[ch];
+
+			float a = (level > env) ? attack_a : release_a;
+			env = ((1.0F - a) * level) + (a * env);
+			lim->peak[ch] = env;
+
+			if (env > thresh_lin && env > 1e-10F)
+			{
+				float gain = thresh_lin / env;
+				buf[s] *= gain;
+			}
+		}
+	}
+}
+
+static void apply_bus_compressor(float* buf, ma_uint32 frames, uint32_t channels,
+								 uint32_t sampleRate, spel_audio_effect_compressor_t* comp)
+{
+	if (!comp)
+	{
+		return;
+	}
+	float attack_a = expf(-1.0F / (comp->attack * (float)sampleRate));
+	float release_a = expf(-1.0F / (comp->release * (float)sampleRate));
+	float inv_ratio = 1.0F / comp->ratio;
+
+	for (ma_uint32 f = 0; f < frames; f++)
+	{
+		for (uint32_t ch = 0; ch < channels; ch++)
+		{
+			uint32_t s = (f * channels) + ch;
+			float level = fabsf(buf[s]);
+			float envelope = comp->env[ch];
+
+			float a = (level > envelope) ? attack_a : release_a;
+			envelope = ((1.0F - a) * level) + (a * envelope);
+			comp->env[ch] = envelope;
+
+			if (envelope > 1e-10F)
+			{
+				float db_env = 20.0F * log10f(envelope);
+				if (db_env > comp->threshold)
+				{
+					float db_reduction = (db_env - comp->threshold) * inv_ratio;
+					float target_db = db_env - db_reduction;
+					float gain_lin = powf(10.0F, target_db * 0.05F) / envelope;
+					buf[s] *= gain_lin;
+				}
+			}
+		}
+	}
+}
+
+static void spel_audio_dsp_apply(spel_audio_dsp_chain_t* dsp, float* buf,
+								 ma_uint32 frames, uint32_t channels,
+								 uint32_t sampleRate)
+{
+	if (!dsp)
+	{
+		return;
+	}
+	apply_distortion_effect(buf, frames, channels, dsp->distortion);
+	apply_onepole_lpf(buf, frames, channels, dsp->lpf);
+	apply_onepole_hpf(buf, frames, channels, dsp->hpf);
+	apply_delay_effect(buf, frames, channels, dsp->delay);
+	apply_flanger_effect(buf, frames, channels, dsp->flanger, sampleRate);
+	apply_chorus_effect(buf, frames, channels, dsp->chorus, sampleRate);
+	apply_reverb_effect(buf, frames, channels, dsp->reverb, sampleRate);
+
+	{
+		spel_audio_effect_array_t* chain =
+			atomic_load_explicit(&dsp->effect_chain, memory_order_acquire);
+		apply_effect_chain(buf, frames, channels, sampleRate, chain);
+	}
+
+	apply_bus_limiter(buf, frames, channels, sampleRate, dsp->limiter);
+	apply_bus_compressor(buf, frames, channels, sampleRate, dsp->compressor);
+}
+
 static void apply_accumulate(float* output, const float* scratch, ma_uint32 frames,
 							 uint32_t channels, float vol, float panL, float panR)
 {
@@ -1357,75 +1474,6 @@ static void apply_accumulate(float* output, const float* scratch, ma_uint32 fram
 		{
 			output[(size_t)(f * 2)] += scratch[(size_t)(f * 2)] * l;
 			output[(size_t)(f * 2) + 1] += scratch[(size_t)(f * 2) + 1] * r;
-		}
-	}
-}
-
-static float db_to_linear(float db)
-{
-	return powf(10.0F, db * 0.05F);
-}
-
-static void apply_master_limiter(float* output, ma_uint32 frames, uint32_t channels,
-								 uint32_t sampleRate, float thresholdDb, float attackSec,
-								 float releaseSec, float peak[2])
-{
-	float thresh_lin = db_to_linear(thresholdDb);
-	float attack_a = expf(-1.0F / (attackSec * (float)sampleRate));
-	float release_a = expf(-1.0F / (releaseSec * (float)sampleRate));
-
-	for (ma_uint32 f = 0; f < frames; f++)
-	{
-		for (uint32_t ch = 0; ch < channels; ch++)
-		{
-			uint32_t s = (f * channels) + ch;
-			float level = fabsf(output[s]);
-			float env = peak[ch];
-
-			float a = (level > env) ? attack_a : release_a;
-			env = ((1.0F - a) * level) + (a * env);
-			peak[ch] = env;
-
-			if (env > thresh_lin && env > 1e-10F)
-			{
-				float gain = thresh_lin / env;
-				output[s] *= gain;
-			}
-		}
-	}
-}
-
-static void apply_master_compressor(float* output, ma_uint32 frames, uint32_t channels,
-									uint32_t sampleRate, float thresholdDb, float ratio,
-									float attackSec, float releaseSec, float env[2])
-{
-	float attack_a = expf(-1.0F / (attackSec * (float)sampleRate));
-	float release_a = expf(-1.0F / (releaseSec * (float)sampleRate));
-	float inv_ratio = 1.0F / ratio;
-
-	for (ma_uint32 f = 0; f < frames; f++)
-	{
-		for (uint32_t ch = 0; ch < channels; ch++)
-		{
-			uint32_t s = (f * channels) + ch;
-			float level = fabsf(output[s]);
-			float envelope = env[ch];
-
-			float a = (level > envelope) ? attack_a : release_a;
-			envelope = ((1.0F - a) * level) + (a * envelope);
-			env[ch] = envelope;
-
-			if (envelope > 1e-10F)
-			{
-				float db_env = 20.0F * log10f(envelope);
-				if (db_env > thresholdDb)
-				{
-					float db_reduction = (db_env - thresholdDb) * inv_ratio;
-					float target_db = db_env - db_reduction;
-					float gain_lin = powf(10.0F, target_db * 0.05F) / envelope;
-					output[s] *= gain_lin;
-				}
-			}
 		}
 	}
 }
@@ -1464,6 +1512,8 @@ spel_hidden void spel_audio_bus_process(spel_audio_mixer_t* mixer, float* output
 			continue;
 		}
 
+		spel_audio_dsp_apply(&b->dsp, b->buffer, frameCount, channels, sampleRate);
+
 		float vol = b->volume;
 		if (channels == 1)
 		{
@@ -1481,25 +1531,8 @@ spel_hidden void spel_audio_bus_process(spel_audio_mixer_t* mixer, float* output
 			}
 		}
 	}
-}
 
-void spel_audio_master_process(spel_audio_mixer_t* mixer, float* output,
-							   ma_uint32 frameCount, uint32_t channels,
-							   uint32_t sampleRate)
-{
-	if (mixer->limiter_enabled)
-	{
-		apply_master_limiter(output, frameCount, channels, sampleRate,
-							 mixer->limiter_threshold, mixer->limiter_attack,
-							 mixer->limiter_release, mixer->limiter_peak);
-	}
-	if (mixer->compressor_enabled)
-	{
-		apply_master_compressor(output, frameCount, channels, sampleRate,
-								mixer->compressor_threshold, mixer->compressor_ratio,
-								mixer->compressor_attack, mixer->compressor_release,
-								mixer->compressor_env);
-	}
+	spel_audio_dsp_apply(&mixer->buses[0].dsp, output, frameCount, channels, sampleRate);
 }
 
 void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
@@ -1591,20 +1624,7 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 			continue;
 		}
 
-		apply_distortion_effect(scratch, out_frames, channels, v->distortion);
-		apply_onepole_lpf(scratch, out_frames, channels, v->lpf);
-		apply_onepole_hpf(scratch, out_frames, channels, v->hpf);
-		apply_delay_effect(scratch, out_frames, channels, v->delay);
-		apply_flanger_effect(scratch, out_frames, channels, v->flanger, sampleRate);
-		apply_chorus_effect(scratch, out_frames, channels, v->chorus, sampleRate);
-
-		apply_reverb_effect(scratch, out_frames, channels, v->reverb, sampleRate);
-
-		{
-			spel_audio_effect_array_t* _chain =
-				atomic_load_explicit(&v->effect_chain, memory_order_acquire);
-			apply_effect_chain(scratch, out_frames, channels, sampleRate, _chain);
-		}
+		spel_audio_dsp_apply(&v->dsp, scratch, out_frames, channels, sampleRate);
 
 		if (v->bus_id == 0)
 		{
@@ -1640,10 +1660,10 @@ spel_hidden void spel_audio_cleanup(void)
 	{
 		spel_audio_voice_t* v = &state->mixer.voices[i];
 
-		if (v->effect_chain_to_free)
+		if (v->dsp.effect_chain_to_free)
 		{
-			spel_memory_free(v->effect_chain_to_free);
-			v->effect_chain_to_free = NULL;
+			spel_memory_free(v->dsp.effect_chain_to_free);
+			v->dsp.effect_chain_to_free = NULL;
 		}
 
 		if (v->fire_forget && atomic_load_explicit(&v->done, memory_order_acquire))
@@ -1686,54 +1706,66 @@ spel_hidden void spel_audio_cleanup(void)
 spel_api void spel_audio_master_limiter_set(float thresholdDb, float attackMs,
 											float releaseMs)
 {
-	spel_audio_state_t* state = spel.audio.state;
-	if (!state)
-	{
-		return;
-	}
-
-	if (thresholdDb <= -80.0F || attackMs <= 0.0F || releaseMs <= 0.0F)
-	{
-		spel_audio_cmd cmd;
-		cmd.type = SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE;
-		cmd.voice_index = -1;
-		cmd.bool_value = false;
-		spel_audio_cmd_push(&state->cmd_ring, &cmd);
-		return;
-	}
-
-	float attack_sec = attackMs * 0.001F;
-	float release_sec = releaseMs * 0.001F;
-
-	spel_audio_cmd cmd;
-	cmd.type = SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS;
-	cmd.voice_index = -1;
-	cmd.floats[0] = thresholdDb;
-	cmd.floats[1] = attack_sec;
-	cmd.floats[2] = release_sec;
-	spel_audio_cmd_push(&state->cmd_ring, &cmd);
-
-	cmd.type = SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE;
-	cmd.bool_value = true;
-	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+	spel_audio_bus_limiter_set(0, thresholdDb, attackMs, releaseMs);
 }
 
 spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
 											   float attackMs, float releaseMs)
 {
+	spel_audio_bus_compressor_set(0, thresholdDb, ratio, attackMs, releaseMs);
+}
+
+spel_api bool spel_audio_master_limiter_enabled(void)
+{
 	spel_audio_state_t* state = spel.audio.state;
-	if (!state)
+	if (!state || state->mixer.bus_count == 0)
+	{
+		return false;
+	}
+	return state->mixer.buses[0].dsp.limiter != NULL;
+}
+
+spel_api bool spel_audio_master_compressor_enabled(void)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || state->mixer.bus_count == 0)
+	{
+		return false;
+	}
+	return state->mixer.buses[0].dsp.compressor != NULL;
+}
+
+spel_api void spel_audio_bus_limiter_set(uint32_t busId, float thresholdDb,
+										 float attackMs, float releaseMs)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || busId >= state->mixer.bus_count)
 	{
 		return;
 	}
+	spel_audio_bus_state_t* b = &state->mixer.buses[busId];
 
-	if (thresholdDb <= -80.0F || ratio <= 1.0F || attackMs <= 0.0F || releaseMs <= 0.0F)
+	if (thresholdDb <= -80.0F || attackMs <= 0.0F || releaseMs <= 0.0F)
 	{
 		spel_audio_cmd cmd;
-		cmd.type = SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE;
-		cmd.voice_index = -1;
+		cmd.type = SPEL_AUDIO_CMD_BUS_LIMITER_ENABLE;
+		cmd.voice_index = (int)busId;
 		cmd.bool_value = false;
 		spel_audio_cmd_push(&state->cmd_ring, &cmd);
+		return;
+	}
+
+	if (!b->dsp.limiter)
+	{
+		b->dsp.limiter = (spel_audio_effect_limiter_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_limiter_t), SPEL_MEM_TAG_AUDIO);
+		if (b->dsp.limiter)
+		{
+			memset(b->dsp.limiter, 0, sizeof(*b->dsp.limiter));
+		}
+	}
+	if (!b->dsp.limiter)
+	{
 		return;
 	}
 
@@ -1741,37 +1773,68 @@ spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
 	float release_sec = releaseMs * 0.001F;
 
 	spel_audio_cmd cmd;
-	cmd.type = SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS;
-	cmd.voice_index = -1;
+	cmd.type = SPEL_AUDIO_CMD_BUS_LIMITER_PARAMS;
+	cmd.voice_index = (int)busId;
+	cmd.floats[0] = thresholdDb;
+	cmd.floats[1] = attack_sec;
+	cmd.floats[2] = release_sec;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+
+	cmd.type = SPEL_AUDIO_CMD_BUS_LIMITER_ENABLE;
+	cmd.bool_value = true;
+	spel_audio_cmd_push(&state->cmd_ring, &cmd);
+}
+
+spel_api void spel_audio_bus_compressor_set(uint32_t busId, float thresholdDb,
+											float ratio, float attackMs,
+											float releaseMs)
+{
+	spel_audio_state_t* state = spel.audio.state;
+	if (!state || busId >= state->mixer.bus_count)
+	{
+		return;
+	}
+	spel_audio_bus_state_t* b = &state->mixer.buses[busId];
+
+	if (thresholdDb <= -80.0F || ratio <= 1.0F || attackMs <= 0.0F || releaseMs <= 0.0F)
+	{
+		spel_audio_cmd cmd;
+		cmd.type = SPEL_AUDIO_CMD_BUS_COMPRESSOR_ENABLE;
+		cmd.voice_index = (int)busId;
+		cmd.bool_value = false;
+		spel_audio_cmd_push(&state->cmd_ring, &cmd);
+		return;
+	}
+
+	if (!b->dsp.compressor)
+	{
+		b->dsp.compressor = (spel_audio_effect_compressor_t*)spel_memory_malloc(
+			sizeof(spel_audio_effect_compressor_t), SPEL_MEM_TAG_AUDIO);
+		if (b->dsp.compressor)
+		{
+			memset(b->dsp.compressor, 0, sizeof(*b->dsp.compressor));
+		}
+	}
+	if (!b->dsp.compressor)
+	{
+		return;
+	}
+
+	float attack_sec = attackMs * 0.001F;
+	float release_sec = releaseMs * 0.001F;
+
+	spel_audio_cmd cmd;
+	cmd.type = SPEL_AUDIO_CMD_BUS_COMPRESSOR_PARAMS;
+	cmd.voice_index = (int)busId;
 	cmd.floats[0] = thresholdDb;
 	cmd.floats[1] = ratio;
 	cmd.floats[2] = attack_sec;
 	cmd.floats[3] = release_sec;
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
 
-	cmd.type = SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE;
+	cmd.type = SPEL_AUDIO_CMD_BUS_COMPRESSOR_ENABLE;
 	cmd.bool_value = true;
 	spel_audio_cmd_push(&state->cmd_ring, &cmd);
-}
-
-spel_api bool spel_audio_master_limiter_enabled(void)
-{
-	spel_audio_state_t* state = spel.audio.state;
-	if (!state)
-	{
-		return false;
-	}
-	return state->mixer.limiter_enabled;
-}
-
-spel_api bool spel_audio_master_compressor_enabled(void)
-{
-	spel_audio_state_t* state = spel.audio.state;
-	if (!state)
-	{
-		return false;
-	}
-	return state->mixer.compressor_enabled;
 }
 
 spel_api int spel_audio_voice_effect_add(spel_audio_voice voice,
@@ -1795,7 +1858,7 @@ spel_api int spel_audio_voice_effect_add(spel_audio_voice voice,
 	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
 
 	spel_audio_effect_array_t* old =
-		atomic_load_explicit(&v->effect_chain, memory_order_relaxed);
+		atomic_load_explicit(&v->dsp.effect_chain, memory_order_relaxed);
 	uint32_t old_count = old ? old->count : 0;
 	uint32_t new_count = old_count + 1;
 
@@ -1818,14 +1881,14 @@ spel_api int spel_audio_voice_effect_add(spel_audio_voice voice,
 	new_arr->slots[old_count].user_data = userData;
 	memset(new_arr->slots[old_count].params, 0, sizeof(new_arr->slots[old_count].params));
 
-	atomic_store_explicit(&v->effect_chain, new_arr, memory_order_release);
+	atomic_store_explicit(&v->dsp.effect_chain, new_arr, memory_order_release);
 	int slot = (int)old_count;
 
-	if (v->effect_chain_to_free)
+	if (v->dsp.effect_chain_to_free)
 	{
-		spel_memory_free(v->effect_chain_to_free);
+		spel_memory_free(v->dsp.effect_chain_to_free);
 	}
-	v->effect_chain_to_free = old;
+	v->dsp.effect_chain_to_free = old;
 
 	return slot;
 }
@@ -1850,7 +1913,7 @@ spel_api void spel_audio_voice_effect_remove(spel_audio_voice voice, int slot)
 	spel_audio_voice_t* v = (spel_audio_voice_t*)voice;
 
 	spel_audio_effect_array_t* old =
-		atomic_load_explicit(&v->effect_chain, memory_order_relaxed);
+		atomic_load_explicit(&v->dsp.effect_chain, memory_order_relaxed);
 	if (!old || (uint32_t)slot >= old->count)
 	{
 		return;
@@ -1860,13 +1923,13 @@ spel_api void spel_audio_voice_effect_remove(spel_audio_voice voice, int slot)
 
 	if (new_count == 0)
 	{
-		atomic_store_explicit(&v->effect_chain, NULL, memory_order_release);
+		atomic_store_explicit(&v->dsp.effect_chain, NULL, memory_order_release);
 
-		if (v->effect_chain_to_free)
+		if (v->dsp.effect_chain_to_free)
 		{
-			spel_memory_free(v->effect_chain_to_free);
+			spel_memory_free(v->dsp.effect_chain_to_free);
 		}
-		v->effect_chain_to_free = old;
+		v->dsp.effect_chain_to_free = old;
 		return;
 	}
 
@@ -1894,13 +1957,13 @@ spel_api void spel_audio_voice_effect_remove(spel_audio_voice voice, int slot)
 				   sizeof(spel_audio_effect_slot_t));
 	}
 
-	atomic_store_explicit(&v->effect_chain, new_arr, memory_order_release);
+	atomic_store_explicit(&v->dsp.effect_chain, new_arr, memory_order_release);
 
-	if (v->effect_chain_to_free)
+	if (v->dsp.effect_chain_to_free)
 	{
-		spel_memory_free(v->effect_chain_to_free);
+		spel_memory_free(v->dsp.effect_chain_to_free);
 	}
-	v->effect_chain_to_free = old;
+	v->dsp.effect_chain_to_free = old;
 }
 
 spel_api void spel_audio_voice_effect_param_set(spel_audio_voice voice, int slot,

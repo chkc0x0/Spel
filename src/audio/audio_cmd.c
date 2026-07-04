@@ -70,37 +70,6 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 	{
 		switch (cmd.type)
 		{
-		case SPEL_AUDIO_CMD_MASTER_LIMITER_PARAMS:
-			mixer->limiter_threshold = cmd.floats[0];
-			mixer->limiter_attack    = cmd.floats[1];
-			mixer->limiter_release   = cmd.floats[2];
-			continue;
-
-		case SPEL_AUDIO_CMD_MASTER_LIMITER_ENABLE:
-			mixer->limiter_enabled = cmd.bool_value;
-			if (!cmd.bool_value)
-			{
-				mixer->limiter_peak[0] = 0.0F;
-				mixer->limiter_peak[1] = 0.0F;
-			}
-			continue;
-
-		case SPEL_AUDIO_CMD_MASTER_COMPRESSOR_PARAMS:
-			mixer->compressor_threshold = cmd.floats[0];
-			mixer->compressor_ratio     = cmd.floats[1];
-			mixer->compressor_attack    = cmd.floats[2];
-			mixer->compressor_release   = cmd.floats[3];
-			continue;
-
-		case SPEL_AUDIO_CMD_MASTER_COMPRESSOR_ENABLE:
-			mixer->compressor_enabled = cmd.bool_value;
-			if (!cmd.bool_value)
-			{
-				mixer->compressor_env[0] = 0.0F;
-				mixer->compressor_env[1] = 0.0F;
-			}
-			continue;
-
 		case SPEL_AUDIO_CMD_BUS_VOLUME:
 		{
 			uint32_t bi = (uint32_t)cmd.voice_index;
@@ -127,6 +96,57 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			if (bi < mixer->bus_count)
 			{
 				mixer->buses[bi].solo = cmd.bool_value;
+			}
+			continue;
+		}
+
+		case SPEL_AUDIO_CMD_BUS_LIMITER_PARAMS:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count && mixer->buses[bi].dsp.limiter)
+			{
+				mixer->buses[bi].dsp.limiter->threshold = cmd.floats[0];
+				mixer->buses[bi].dsp.limiter->attack    = cmd.floats[1];
+				mixer->buses[bi].dsp.limiter->release   = cmd.floats[2];
+			}
+			continue;
+		}
+
+		case SPEL_AUDIO_CMD_BUS_LIMITER_ENABLE:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count)
+			{
+				if (!cmd.bool_value)
+				{
+					spel_audio_dsp_free(&mixer->buses[bi].dsp);
+				}
+			}
+			continue;
+		}
+
+		case SPEL_AUDIO_CMD_BUS_COMPRESSOR_PARAMS:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count && mixer->buses[bi].dsp.compressor)
+			{
+				mixer->buses[bi].dsp.compressor->threshold = cmd.floats[0];
+				mixer->buses[bi].dsp.compressor->ratio     = cmd.floats[1];
+				mixer->buses[bi].dsp.compressor->attack    = cmd.floats[2];
+				mixer->buses[bi].dsp.compressor->release   = cmd.floats[3];
+			}
+			continue;
+		}
+
+		case SPEL_AUDIO_CMD_BUS_COMPRESSOR_ENABLE:
+		{
+			uint32_t bi = (uint32_t)cmd.voice_index;
+			if (bi < mixer->bus_count)
+			{
+				if (!cmd.bool_value)
+				{
+					spel_audio_dsp_free(&mixer->buses[bi].dsp);
+				}
 			}
 			continue;
 		}
@@ -185,57 +205,57 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			break;
 
 		case SPEL_AUDIO_CMD_DISTORTION_DRIVE:
-			if (v->distortion)
+			if (v->dsp.distortion)
 			{
-				v->distortion->drive = cmd.float_value;
+				v->dsp.distortion->drive = cmd.float_value;
 			}
 			break;
 
 		case SPEL_AUDIO_CMD_LPF_COEFF:
-			if (v->lpf)
+			if (v->dsp.lpf)
 			{
-				v->lpf->coeff = cmd.float_value;
+				v->dsp.lpf->coeff = cmd.float_value;
 			}
 			break;
 
 		case SPEL_AUDIO_CMD_HPF_COEFF:
-			if (v->hpf)
+			if (v->dsp.hpf)
 			{
-				v->hpf->coeff = cmd.float_value;
+				v->dsp.hpf->coeff = cmd.float_value;
 			}
 			break;
 
 		case SPEL_AUDIO_CMD_DELAY_PARAMS:
-			if (v->delay)
+			if (v->dsp.delay)
 			{
-				v->delay->feedback = cmd.floats[0];
-				v->delay->mix = cmd.floats[1];
+				v->dsp.delay->feedback = cmd.floats[0];
+				v->dsp.delay->mix = cmd.floats[1];
 			}
 			break;
 
 		case SPEL_AUDIO_CMD_FLANGER_PARAMS:
-			if (v->flanger)
+			if (v->dsp.flanger)
 			{
-				v->flanger->rate = cmd.floats[0];
-				v->flanger->depth_frames = cmd.floats[2];
-				v->flanger->mix = cmd.floats[3];
+				v->dsp.flanger->rate = cmd.floats[0];
+				v->dsp.flanger->depth_frames = cmd.floats[2];
+				v->dsp.flanger->mix = cmd.floats[3];
 			}
 			break;
 
 		case SPEL_AUDIO_CMD_CHORUS_PARAMS:
-			if (v->chorus)
+			if (v->dsp.chorus)
 			{
-				v->chorus->rate = cmd.floats[0];
-				v->chorus->depth_frames = cmd.floats[1];
-				v->chorus->mix = cmd.floats[2];
-				v->chorus->voices = (int)cmd.floats[3];
+				v->dsp.chorus->rate = cmd.floats[0];
+				v->dsp.chorus->depth_frames = cmd.floats[1];
+				v->dsp.chorus->mix = cmd.floats[2];
+				v->dsp.chorus->voices = (int)cmd.floats[3];
 			}
 			break;
 
 		case SPEL_AUDIO_CMD_EFFECT_PARAM_SET:
 		{
 			spel_audio_effect_array_t* _chain =
-				atomic_load_explicit(&v->effect_chain, memory_order_acquire);
+				atomic_load_explicit(&v->dsp.effect_chain, memory_order_acquire);
 			if (_chain)
 			{
 				unsigned int si = (unsigned int)cmd.floats[0];
@@ -248,18 +268,18 @@ spel_hidden void spel_audio_cmd_process(spel_audio_mixer_t* mixer,
 			break;
 		}
 
-		case SPEL_AUDIO_CMD_PITCH_SET:
-			v->pitch = cmd.float_value;
+		case SPEL_AUDIO_CMD_REVERB_PARAMS:
+			if (v->dsp.reverb)
+			{
+				v->dsp.reverb->decay     = cmd.floats[0];
+				v->dsp.reverb->damping   = cmd.floats[1];
+				v->dsp.reverb->pre_delay = cmd.floats[2];
+				v->dsp.reverb->mix       = cmd.floats[3];
+			}
 			break;
 
-		case SPEL_AUDIO_CMD_REVERB_PARAMS:
-			if (v->reverb)
-			{
-				v->reverb->decay     = cmd.floats[0];
-				v->reverb->damping   = cmd.floats[1];
-				v->reverb->pre_delay = cmd.floats[2];
-				v->reverb->mix       = cmd.floats[3];
-			}
+		case SPEL_AUDIO_CMD_PITCH_SET:
+			v->pitch = cmd.float_value;
 			break;
 
 		case SPEL_AUDIO_CMD_VOICE_BUS:

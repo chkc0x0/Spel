@@ -2,6 +2,7 @@
 #define SPEL_AUDIO_MIXER
 #include "audio/audio_types.h"
 #include "core/macros.h"
+#define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
 
 spel_api spel_audio_voice spel_audio_voice_create(spel_audio_source source);
 spel_api spel_audio_voice
@@ -39,8 +40,6 @@ spel_api void spel_audio_voice_chorus_set(spel_audio_voice voice, float rateHz,
 spel_api void spel_audio_voice_reverb_set(spel_audio_voice voice, float decay,
 										  float damping, float preDelayMs, float mix);
 
-#define SPEL_AUDIO_CUSTOM_PARAM_COUNT 4
-
 typedef struct
 {
 	const float* params;
@@ -67,6 +66,11 @@ spel_api void spel_audio_master_compressor_set(float thresholdDb, float ratio,
 											   float attackMs, float releaseMs);
 spel_api bool spel_audio_master_limiter_enabled(void);
 spel_api bool spel_audio_master_compressor_enabled(void);
+
+spel_api void spel_audio_bus_limiter_set(uint32_t busId, float thresholdDb,
+										 float attackMs, float releaseMs);
+spel_api void spel_audio_bus_compressor_set(uint32_t busId, float thresholdDb,
+											float ratio, float attackMs, float releaseMs);
 
 spel_hidden void spel_audio_cleanup(void);
 

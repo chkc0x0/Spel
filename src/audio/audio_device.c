@@ -39,9 +39,6 @@ static void device_callback(ma_device* device, void* output, const void* input,
 
 	spel_audio_bus_process(&state->mixer, (float*)output, frameCount, state->channels,
 						   state->sample_rate);
-
-	spel_audio_master_process(&state->mixer, (float*)output, frameCount, state->channels,
-							  state->sample_rate);
 }
 
 spel_api bool spel_audio_init(void)
@@ -174,7 +171,7 @@ spel_api void spel_audio_shutdown(void)
 		{
 			spel_memory_free(v->desc_bridge);
 		}
-		spel_audio_voice_free_effects(v);
+		spel_audio_dsp_free(&v->dsp);
 	}
 
 	for (uint32_t bi = 1; bi < state->mixer.bus_count; bi++)
@@ -184,6 +181,11 @@ spel_api void spel_audio_shutdown(void)
 			spel_memory_free(state->mixer.buses[bi].buffer);
 			state->mixer.buses[bi].buffer = NULL;
 		}
+	}
+
+	for (uint32_t bi = 0; bi < state->mixer.bus_count; bi++)
+	{
+		spel_audio_dsp_free(&state->mixer.buses[bi].dsp);
 	}
 
 	spel_memory_free(state->scratch);
