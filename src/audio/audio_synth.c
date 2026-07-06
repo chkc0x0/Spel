@@ -9,6 +9,7 @@
 #include <string.h>
 
 #define SPEL_SYNTH_MAX_VOICES 64
+#define SPEL_SAW_LPF_HZ 1200.0F
 
 typedef enum
 {
@@ -34,6 +35,8 @@ typedef struct
 	float decay_rate;
 	float release_rate;
 	float sustain_level;
+
+	float lpf_state;
 
 	int32_t voice_id;
 	bool active;
@@ -116,6 +119,12 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 	}
 
 	float inv_sr = 1.0F / (float)sr;
+
+	float saw_lpf_g = SPEL_SAW_LPF_HZ * 2.0F * (float)M_PI * inv_sr;
+	if (saw_lpf_g > 1.0F)
+	{
+		saw_lpf_g = 1.0F;
+	}
 	float pulse_width = sv->params[0];
 	if (pulse_width < 0.01F)
 	{
@@ -221,6 +230,8 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 
 			case SPEL_AUDIO_SYNTH_WAVE_SAW:
 				sample = gen_saw(gen_phase);
+				v->lpf_state += saw_lpf_g * (sample - v->lpf_state);
+				sample = v->lpf_state;
 				break;
 
 			case SPEL_AUDIO_SYNTH_WAVE_TRIANGLE:
@@ -257,6 +268,15 @@ static size_t synth_read_cb(void* userCtx, void* output, size_t count)
 			{
 				v->phase -= 1.0F;
 			}
+		}
+
+		if (frame_sum > 100.0F)
+		{
+			frame_sum = 100.0F;
+		}
+		else if (frame_sum < -100.0F)
+		{
+			frame_sum = -100.0F;
 		}
 
 		for (uint32_t ch = 0; ch < channels; ch++)
@@ -450,6 +470,8 @@ spel_api int32_t spel_audio_synth_note_on(spel_audio_synth sv, float frequency,
 	v->rng_state =
 		12345U + (unsigned int)(frequency * 100.0F) + (unsigned int)(velocity * 65535.0F);
 
+	v->lpf_state = 0.0F;
+
 	v->voice_id = (int32_t)(s->next_voice_id++);
 
 	spel_audio_voice_play(s->audio_voice);
@@ -556,13 +578,26 @@ spel_api void spel_audio_synth_note(spel_audio_synth sv, float frequency, float 
 	{
 		return;
 	}
+
+	spel_synth_t* s = (spel_synth_t*)sv;
+
+	for (uint32_t i = 0; i < s->max_voices; i++)
+	{
+		spel_internal_voice_t* v = &s->voices[i];
+		if (v->active && (v->env_state == SPEL_SYNTH_ENV_ATTACK ||
+						  v->env_state == SPEL_SYNTH_ENV_DECAY ||
+						  v->env_state == SPEL_SYNTH_ENV_SUSTAIN))
+		{
+			v->env_state = SPEL_SYNTH_ENV_RELEASE;
+		}
+	}
+
 	int32_t vid = spel_audio_synth_note_on(sv, frequency, velocity);
 	if (vid < 0)
 	{
 		return;
 	}
 
-	spel_synth_t* s = (spel_synth_t*)sv;
 	for (uint32_t i = 0; i < s->max_voices; i++)
 	{
 		if (s->voices[i].voice_id == vid)
@@ -875,13 +910,15 @@ spel_api void spel_audio_synth_player_update(spel_audio_synth_player player)
 		}
 
 		float freq = 440.0F * powf(2.0F, (float)(ev->midi_note - 69) * (1.0F / 12.0F));
-		float dur = ev->duration;
-		if (dur <= 0.0F)
+		float dur_beats = ev->duration;
+		if (dur_beats <= 0.0F)
 		{
-			dur = 0.05F;
+			dur_beats = 0.05F;
 		}
 
-		spel_audio_synth_note(p->synth, freq, ev->velocity, dur);
+		float dur_sec = dur_beats * 60.0F / p->bpm;
+
+		spel_audio_synth_note(p->synth, freq, ev->velocity, dur_sec);
 
 		p->active_event = (int32_t)p->next_event;
 		p->next_event++;

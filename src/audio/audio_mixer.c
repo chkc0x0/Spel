@@ -15,23 +15,6 @@ typedef struct desc_bridge
 	void* user_context;
 } desc_bridge_t;
 
-static ma_result on_read_bridge(ma_decoder* pDecoder, void* pBufferOut,
-								size_t bytesToRead, size_t* pBytesRead)
-{
-	desc_bridge_t* b = (desc_bridge_t*)pDecoder->pUserData;
-	size_t n = b->on_read(b->user_context, pBufferOut, bytesToRead);
-	*pBytesRead = n;
-	return (n > 0 || bytesToRead == 0) ? MA_SUCCESS : MA_AT_END;
-}
-
-static ma_result on_seek_bridge(ma_decoder* pDecoder, ma_int64 byteOffset,
-								ma_seek_origin origin)
-{
-	desc_bridge_t* b = (desc_bridge_t*)pDecoder->pUserData;
-	int ret = b->on_seek(b->user_context, (int64_t)byteOffset, (int)origin);
-	return (ret == 0) ? MA_SUCCESS : MA_INVALID_OPERATION;
-}
-
 static void* ensure_allocated(void** slot, size_t size)
 {
 	if (!*slot)
@@ -295,25 +278,18 @@ spel_audio_voice_create_from_desc(const spel_audio_source_desc* desc)
 		break;
 
 	case SPEL_AUDIO_SOURCE_CALLBACKS:
+		spel_memory_free(v->decoder);
+		v->decoder = NULL;
 		v->desc_bridge =
 			(desc_bridge_t*)spel_memory_malloc(sizeof(desc_bridge_t), SPEL_MEM_TAG_AUDIO);
 		if (!v->desc_bridge)
 		{
-			spel_memory_free(v->decoder);
-			v->decoder = NULL;
 			return NULL;
 		}
 		v->desc_bridge->on_read = desc->source.callbacks.on_read;
 		v->desc_bridge->on_seek = desc->source.callbacks.on_seek;
 		v->desc_bridge->user_context = desc->source.callbacks.user_context;
-
-		result = ma_decoder_init(on_read_bridge, on_seek_bridge, v->desc_bridge, &dec_cfg,
-								 v->decoder);
-		if (result != MA_SUCCESS)
-		{
-			spel_memory_free(v->desc_bridge);
-			v->desc_bridge = NULL;
-		}
+		result = MA_SUCCESS;
 		break;
 
 	default:
@@ -1540,6 +1516,16 @@ static bool read_voice_frames(spel_audio_voice_t* v, float* scratch,
 							   ma_uint32 frameCount, ma_uint32 channels,
 							   ma_uint32* outFrames, bool* pitchRawEnd)
 {
+	if (v->desc_bridge)
+	{
+		size_t bytes = (size_t)frameCount * channels * sizeof(float);
+		size_t n = v->desc_bridge->on_read(
+			v->desc_bridge->user_context, scratch, bytes);
+		*outFrames = (ma_uint32)(n / (sizeof(float) * channels));
+		*pitchRawEnd = false;
+		return *outFrames > 0;
+	}
+
 	if (v->pitch == 1.0F)
 	{
 		ma_uint64 dec_read = 0;
@@ -1603,6 +1589,11 @@ static bool read_voice_frames(spel_audio_voice_t* v, float* scratch,
 static void voice_mark_end(spel_audio_voice_t* v, bool pitchRawEnd,
 							ma_uint32 outFrames, ma_uint32 frameCount)
 {
+	if (!v->decoder)
+	{
+		return;
+	}
+
 	if (pitchRawEnd || outFrames < frameCount)
 	{
 		ma_decoder_seek_to_pcm_frame(v->decoder, 0);
@@ -1623,7 +1614,8 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 		spel_audio_voice_t* v = &mixer->voices[i];
 
 		if (!atomic_load_explicit(&v->active, memory_order_acquire) ||
-			!atomic_load_explicit(&v->playing, memory_order_acquire) || !v->decoder)
+			!atomic_load_explicit(&v->playing, memory_order_acquire) ||
+			(!v->decoder && !v->desc_bridge))
 		{
 			continue;
 		}
@@ -1666,7 +1658,10 @@ void spel_audio_mixer_process(spel_audio_mixer_t* mixer, float* output,
 							 channels, v->volume, v->pan_l, v->pan_r);
 		}
 
-		voice_mark_end(v, pitch_raw_end, out_frames, frameCount);
+		if (!v->desc_bridge)
+		{
+			voice_mark_end(v, pitch_raw_end, out_frames, frameCount);
+		}
 	}
 }
 
@@ -1706,7 +1701,8 @@ spel_hidden void spel_audio_cleanup(void)
 			continue;
 		}
 
-		if (!atomic_load_explicit(&v->active, memory_order_acquire) && v->decoder != NULL)
+		if (!atomic_load_explicit(&v->active, memory_order_acquire) &&
+			(v->decoder != NULL || v->desc_bridge != NULL))
 		{
 			if (v->decoder)
 			{
