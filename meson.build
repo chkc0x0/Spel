@@ -279,6 +279,7 @@ executable(
     'spel-mid2sht',
     sources: ['tools/mid2sht.c'],
     cpp_args: [rel_compile_args],
+    dependencies: cc.find_library('m', required: false),
     install: true
 )
 
