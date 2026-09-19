@@ -578,7 +578,7 @@ static inline float spel_math_clamp(float v, float lo, float hi)
 static inline float spel_math_smoothstep(float e0, float e1, float x)
 {
 	float t = spel_math_clamp((x - e0) / (e1 - e0), 0.0F, 1.0F);
-	return t * t * (3.0F - 2.0F * t);
+	return t * t * (3.0F - (2.0F * t));
 }
 
 static inline spel_vec2 spel_vec2_add(spel_vec2 a, spel_vec2 b)

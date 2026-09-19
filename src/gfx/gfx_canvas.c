@@ -262,7 +262,7 @@ spel_hidden void spel_canvas_ctx_create(spel_gfx_context gfx)
 	ctx->geist = spel_font_create(gfx, spel_font_geist_spfn, spel_font_geist_spfn_len);
 	ctx->vga = spel_font_create(gfx, spel_font_vga_spfn, spel_font_vga_spfn_len);
 
-	ctx->font = ctx->geist;
+	ctx->font = ctx->vga;
 	ctx->default_shader = true;
 
 	ctx->font_ubuffer.buffer = NULL;
